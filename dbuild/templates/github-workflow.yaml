@@ -1,0 +1,20 @@
+# Build FreeBSD container image with dbuild.
+# Docs: https://github.com/daemonless/dbuild
+
+name: Daemonless Build FreeBSD Container
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['*.md', 'LICENSE', '.gitignore']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: daemonless/dbuild/.github/workflows/build.yml@v2
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit

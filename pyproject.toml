@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=63"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbuild"
+version = "2.0.0"
+description = "FreeBSD OCI container image build tool"
+requires-python = ">=3.11"
+dependencies = ["PyYAML"]
+license = {text = "BSD-2-Clause"}
+
+[project.optional-dependencies]
+screenshot = ["selenium>=4", "scikit-image>=0.23"]
+dev = ["pytest>=7", "ruff>=0.9"]
+
+[project.scripts]
+dbuild = "dbuild.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dbuild*"]
+
+[tool.setuptools.package-data]
+"dbuild.templates" = ["*.yaml", "Containerfile"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific
+]
+ignore = [
+    "E501",  # line length (handled by formatter)
+    "SIM108", # ternary operator (readability)
+]

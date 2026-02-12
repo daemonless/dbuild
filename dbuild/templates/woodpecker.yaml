@@ -1,0 +1,34 @@
+# Woodpecker CI workflow for building FreeBSD container images with dbuild.
+#
+# Override the bootstrap step by placing .daemonless/bootstrap.sh in your repo.
+# Commit message directives: [skip test], [skip push], [skip sbom]
+
+steps:
+  - name: build
+    image: /bin/sh
+    commands:
+      - |
+        DBUILD_REF="${DBUILD_REF:-v2}"
+        if [ -n "$DBUILD_PATH" ] && [ -d "$DBUILD_PATH/dbuild" ]; then
+          export PYTHONPATH="$DBUILD_PATH"
+        elif [ -d "../dbuild/dbuild" ]; then
+          export PYTHONPATH="$(cd ../dbuild && pwd)"
+        else
+          if [ -f .daemonless/bootstrap.sh ]; then
+            sh .daemonless/bootstrap.sh
+          else
+            fetch -qo /tmp/bootstrap.sh \
+              "https://raw.githubusercontent.com/daemonless/dbuild/${DBUILD_REF}/bootstrap.sh"
+            sh /tmp/bootstrap.sh
+          fi
+          export PYTHONPATH="${DBUILD_DIR:-/tmp/dbuild}"
+        fi
+
+        python3 -m dbuild ci-run
+
+when:
+  - event: push
+    branch: main
+    path:
+      exclude: ["*.md", "docs/**", "LICENSE", ".gitignore"]
+  - event: manual

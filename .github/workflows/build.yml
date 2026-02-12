@@ -1,0 +1,62 @@
+# Daemonless Build FreeBSD Container — reusable workflow.
+#
+# Called by image repos:
+#   jobs:
+#     build:
+#       uses: daemonless/dbuild/.github/workflows/build.yml@v2
+#       permissions: { contents: read, packages: write }
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      dbuild-ref:
+        description: "dbuild version to use"
+        type: string
+        default: v2
+      freebsd-release:
+        description: "FreeBSD release for the VM"
+        type: string
+        default: "15.0"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip -q install PyYAML
+      - id: detect
+        run: |
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild-ref }}.tar.gz" | tar xz -C /tmp
+          PYTHONPATH=$(ls -d /tmp/dbuild-*) python3 -m dbuild detect --format github
+
+  build:
+    needs: detect
+    if: ${{ needs.detect.outputs.matrix != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/freebsd-vm@v1.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        with:
+          release: ${{ inputs.freebsd-release }}
+          usesh: true
+          envs: "GITHUB_TOKEN GITHUB_ACTOR"
+          prepare: |
+            set -e
+            if [ -f .daemonless/bootstrap.sh ]; then
+              sh .daemonless/bootstrap.sh
+            else
+              fetch -qo /tmp/bootstrap.sh \
+                "https://raw.githubusercontent.com/daemonless/dbuild/${{ inputs.dbuild-ref }}/bootstrap.sh"
+              sh /tmp/bootstrap.sh
+            fi
+          run: |
+            PYTHONPATH=/tmp/dbuild python3 -m dbuild ci-run --variant "${{ matrix.tag }}"

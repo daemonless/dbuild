@@ -1,0 +1,15 @@
+FROM ghcr.io/daemonless/base:15
+
+# Install packages
+RUN pkg install -y \
+    # app-package-here \
+    && pkg clean -ay
+
+# Copy root overlay (services, config)
+COPY root/ /
+
+# Application port
+EXPOSE 8080
+
+# Volume for persistent data
+VOLUME /config
