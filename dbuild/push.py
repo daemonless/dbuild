@@ -111,7 +111,10 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         log.info("Skipping Docker Hub mirror ([skip push:dockerhub] in commit message)")
     elif dh_username and dh_token:
         log.info("Docker Hub mirroring enabled")
-        mirror_reg = registry_mod.for_url("docker.io", dh_token)
+        # Extract org from primary registry (e.g. ghcr.io/daemonless -> daemonless)
+        parts = cfg.registry.split("/", 1)
+        dh_org = dh_username if len(parts) < 2 else parts[1]
+        mirror_reg = registry_mod.for_url(f"docker.io/{dh_org}", dh_token)
         mirror_reg.login(dh_token, dh_username)
 
     # ---- push each variant ----
