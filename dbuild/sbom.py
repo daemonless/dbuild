@@ -110,6 +110,9 @@ def _extract_freebsd_packages(image_ref: str) -> list[dict[str, str]]:
         log.warn("Could not query FreeBSD packages")
         return []
 
+    # Strip control characters (e.g. STX \x02) that pkg query can emit.
+    output = ''.join(c for c in output if c.isprintable() or c == '\n')
+
     packages: list[dict[str, str]] = []
     for line in output.splitlines():
         line = line.strip()
@@ -180,9 +183,14 @@ def _generate_sbom(
         total += len(pkgs)
     summary["total"] = total
 
+    # Include arch suffix in tag for non-amd64 so the merge step
+    # produces separate entries (e.g. "15" and "15-aarch64").
+    arch_suffix = f"-{arch}" if arch != "amd64" else ""
+    sbom_tag = f"{variant.tag}{arch_suffix}"
+
     sbom: dict[str, Any] = {
         "image": cfg.image,
-        "tag": variant.tag,
+        "tag": sbom_tag,
         "arch": arch,
         "app_version": app_version,
         "source": source,
