@@ -24,28 +24,37 @@ from dbuild import registry as registry_mod
 from dbuild.config import Config, Variant
 
 
-def _collect_tags(variant: Variant) -> list[str]:
-    """Return all tags that should be pushed for *variant*.
+def _arch_suffix(arch: str) -> str:
+    """Return the tag suffix for *arch* (empty for amd64)."""
+    return f"-{arch}" if arch != "amd64" else ""
+
+
+def _collect_tags(variant: Variant, arch: str) -> list[str]:
+    """Return all tags that should be pushed for *variant* and *arch*.
 
     The primary tag is always first, followed by any aliases.
+    Non-amd64 architectures get an arch suffix (e.g. ``15-aarch64``).
     """
-    tags = [variant.tag]
+    suffix = _arch_suffix(arch)
+    tags = [f"{variant.tag}{suffix}"]
     for alias in variant.aliases:
-        if alias not in tags:
-            tags.append(alias)
+        suffixed = f"{alias}{suffix}"
+        if suffixed not in tags:
+            tags.append(suffixed)
     return tags
 
 
 def _push_variant(
     cfg: Config,
     variant: Variant,
+    arch: str,
     *,
     reg: registry_mod.RegistryBase,
     mirror_reg: registry_mod.RegistryBase | None = None,
 ) -> None:
     """Tag and push a single variant to the primary (and optional mirror) registry."""
     build_ref = f"{cfg.full_image}:build-{variant.tag}"
-    tags = _collect_tags(variant)
+    tags = _collect_tags(variant, arch)
 
     log.step(f"Pushing :{variant.tag}")
 
@@ -119,6 +128,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
 
     # ---- push each variant ----
     variant_filter: str | None = getattr(args, "variant", None)
+    arch: str = getattr(args, "arch", None) or cfg.architectures[0]
     pushed: list[str] = []
 
     for variant in cfg.variants:
@@ -127,6 +137,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         _push_variant(
             cfg,
             variant,
+            arch,
             reg=primary_reg,
             mirror_reg=mirror_reg,
         )
