@@ -29,10 +29,23 @@ def _arch_suffix(arch: str) -> str:
     return f"-{arch}" if arch != "amd64" else ""
 
 
-def _collect_tags(variant: Variant, arch: str) -> list[str]:
+def _version_tag(version: str, variant_tag: str) -> str:
+    """Build a version tag like ``32.0.5`` or ``32.0.5-pkg``."""
+    v = version.lstrip("v")
+    if variant_tag == "latest":
+        return v
+    return f"{v}-{variant_tag}"
+
+
+def _collect_tags(
+    variant: Variant,
+    arch: str,
+    version: str | None = None,
+) -> list[str]:
     """Return all tags that should be pushed for *variant* and *arch*.
 
-    The primary tag is always first, followed by any aliases.
+    The primary tag is always first, followed by any aliases,
+    then the versioned tag (e.g. ``32.0.5-pkg``).
     Non-amd64 architectures get an arch suffix (e.g. ``15-aarch64``).
     """
     suffix = _arch_suffix(arch)
@@ -41,6 +54,10 @@ def _collect_tags(variant: Variant, arch: str) -> list[str]:
         suffixed = f"{alias}{suffix}"
         if suffixed not in tags:
             tags.append(suffixed)
+    if version:
+        vtag = f"{_version_tag(version, variant.tag)}{suffix}"
+        if vtag not in tags:
+            tags.append(vtag)
     return tags
 
 
@@ -54,7 +71,12 @@ def _push_variant(
 ) -> None:
     """Tag and push a single variant to the primary (and optional mirror) registry."""
     build_ref = f"{cfg.full_image}:build-{variant.tag}"
-    tags = _collect_tags(variant, arch)
+
+    # Read version from OCI label applied during build.
+    labels = podman.inspect_labels(build_ref)
+    version = labels.get("org.opencontainers.image.version")
+
+    tags = _collect_tags(variant, arch, version)
 
     log.step(f"Pushing :{variant.tag}")
 
