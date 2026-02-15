@@ -453,6 +453,9 @@ def _test_variant(
             log.error("compose: true but no compose.yaml found")
             return 1
         log.info(f"Compose mode: {compose_file}")
+        # Tag build image as :build so compose.yaml can reference it
+        build_tag = f"{cfg.full_image}:build"
+        podman.tag(build_ref, build_tag)
         label_info: dict = {"port": None, "health": None, "jail_annotations": {}}
     else:
         label_info = _read_labels(build_ref)
