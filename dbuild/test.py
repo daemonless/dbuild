@@ -62,6 +62,7 @@ _DEFAULT_READY_PATTERNS = (
     r"|Application started"
     r"|Startup complete"
     r"|listening on"
+    r"|is ready"
 )
 
 
@@ -626,6 +627,134 @@ def _test_variant(
             podman.rm(container_name)
 
         # Deregister from emergency cleanup
+        if cleanup_entry in _cleanup_targets:
+            _cleanup_targets.remove(cleanup_entry)
+
+
+# ── Screenshot entry point ────────────────────────────────────────────
+
+def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
+    """Capture a screenshot of a built image.
+
+    Starts the container, waits for readiness, captures a screenshot,
+    and saves it.  The container is cleaned up afterwards.
+
+    Returns 0 on success, 1 on failure.
+    """
+    missing = _check_screenshot_deps()
+    if missing:
+        log.error("Screenshot requires:")
+        for dep in missing:
+            log.error(f"  - {dep}")
+        return 1
+
+    if cfg.test is None:
+        log.error("No test configuration found")
+        return 1
+
+    test = cfg.test
+    variant_filter: str | None = getattr(args, "variant", None)
+
+    # Pick first matching variant (default to first)
+    variant = None
+    for v in cfg.variants:
+        if variant_filter and v.tag != variant_filter:
+            continue
+        variant = v
+        break
+
+    if variant is None:
+        log.error("No matching variant found")
+        return 1
+
+    build_ref = f"{cfg.full_image}:build-{variant.tag}"
+    repo_dir = Path.cwd()
+
+    # Read labels + merge config
+    label_info = _read_labels(build_ref)
+    port = test.port or label_info["port"]
+    health = test.health or label_info["health"]
+    https = test.https
+
+    if not port:
+        log.error("No port configured — cannot capture screenshot")
+        return 1
+
+    annotations: dict[str, str] = {}
+    annotations.update(label_info.get("jail_annotations", {}))
+    for ann in test.annotations:
+        if "=" in ann:
+            k, v = ann.split("=", 1)
+            annotations[k] = v
+
+    ready_patterns = test.ready or _DEFAULT_READY_PATTERNS
+
+    # Determine output path
+    output = getattr(args, "output", None)
+    if not output:
+        output = str(repo_dir / ".daemonless" / f"baseline-{variant.tag}.png")
+
+    container_name = f"screenshot-{int(time.time())}-{os.getpid()}"
+    cleanup_entry = (None, container_name)
+    _cleanup_targets.append(cleanup_entry)
+
+    log.step(f"Capturing screenshot for :{variant.tag}")
+    log.info(f"Image: {build_ref}")
+    log.info(f"Output: {output}")
+
+    try:
+        cid = podman.run_detached(
+            build_ref,
+            name=container_name,
+            annotations=annotations,
+        )
+        log.info(f"Started: {cid}")
+
+        # Shell check
+        if not _test_shell(container_name):
+            return 1
+
+        ip = podman.inspect_ip(container_name)
+        if not ip:
+            log.error("Could not get container IP")
+            return 1
+        log.info(f"Container IP: {ip}")
+
+        # Wait for ready
+        _wait_for_ready(container_name, ready_patterns, test.wait)
+
+        # Wait for port
+        if not _test_port(ip, port, test.wait):
+            output_logs = podman.logs(container_name)
+            for line in output_logs.splitlines()[-10:]:
+                log.info(f"  {line}")
+            return 1
+
+        # Wait for health if configured
+        if health:
+            if not _test_health(ip, port, health, test.wait, https=https):
+                return 1
+
+        # Capture screenshot
+        from dbuild.screenshot import capture
+
+        screenshot_wait = test.screenshot_wait or 0
+        scheme = "https" if https else "http"
+        screenshot_path = test.screenshot_path or "/"
+        url = f"{scheme}://{ip}:{port}{screenshot_path}"
+
+        log.info(f"Capturing: {url}")
+        if not capture(url, output, timeout=30, min_wait=screenshot_wait):
+            log.error("Screenshot capture failed")
+            return 1
+
+        log.success(f"Screenshot saved to {output}")
+        return 0
+
+    finally:
+        log.info("Cleaning up...")
+        podman.stop(container_name)
+        podman.rm(container_name)
         if cleanup_entry in _cleanup_targets:
             _cleanup_targets.remove(cleanup_entry)
 

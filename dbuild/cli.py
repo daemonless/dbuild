@@ -160,6 +160,20 @@ def _make_parser() -> argparse.ArgumentParser:
         help="generate Woodpecker CI pipeline (.woodpecker.yaml)",
     )
 
+    # -- screenshot --
+    screenshot_parser = sub.add_parser(
+        "screenshot",
+        help="capture a screenshot of a running container",
+        description="Start a container, wait for it to be ready, and capture a screenshot.",
+    )
+    screenshot_parser.add_argument("--variant", **variant_kw)
+    screenshot_parser.add_argument(
+        "-o", "--output",
+        metavar="FILE",
+        default=None,
+        help="save screenshot to FILE (default: .daemonless/baseline.png)",
+    )
+
     # -- ci-prepare --
     ci_prepare_parser = sub.add_parser(
         "ci-prepare",
@@ -288,6 +302,13 @@ def _dispatch_info(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _dispatch_screenshot(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the screenshot subcommand."""
+    from dbuild import test as test_mod
+    rc = test_mod.run_screenshot(cfg, args)
+    return rc if rc else 0
+
+
 def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
     """Run the ci-run subcommand (full CI pipeline)."""
     from dbuild import ci_run
@@ -303,6 +324,7 @@ _DISPATCHERS: dict[str, callable] = {
     "manifest": _dispatch_manifest,
     "detect": _dispatch_detect,
     "info": _dispatch_info,
+    "screenshot": _dispatch_screenshot,
     "ci-run": _dispatch_ci_run,
 }
 
