@@ -132,6 +132,12 @@ jobs:
             # Build
             $DBUILD -v build --variant "$VARIANT" --arch "$ARCH"
 
+            # Install screenshot deps only if CIT mode requires it
+            if grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; then
+              pkg clean -ay && rm -rf /var/cache/pkg/*
+              pkg install -y chromium py311-selenium py311-scikit-image
+            fi
+
             # Test (capture exit code for copyback)
             mkdir -p cit-results
             cit_exit=0
