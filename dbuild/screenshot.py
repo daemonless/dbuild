@@ -58,6 +58,13 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0) -> bool
     driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(timeout)
 
+    # Set exact viewport size via CDP so screenshots are identical across chromium versions
+    w, h = (int(x) for x in WINDOW_SIZE.split(","))
+    driver.execute_cdp_cmd(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": w, "height": h, "deviceScaleFactor": 1, "mobile": False},
+    )
+
     try:
         driver.get(url)
         WebDriverWait(driver, timeout).until(

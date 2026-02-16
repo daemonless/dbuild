@@ -594,6 +594,7 @@ def _test_variant(
             return 0
 
         # === SCREENSHOT TEST ===
+        screenshot_save = f"/tmp/cit-screenshot-{variant.tag}.png"
         passed, msg = _test_screenshot(
             ip,
             port,
@@ -601,6 +602,7 @@ def _test_variant(
             screenshot_path=test.screenshot_path,
             screenshot_wait=test.screenshot_wait or 0,
             baseline=baseline,
+            save_to=screenshot_save,
         )
         if not passed:
             results["screenshot"] = "fail"
