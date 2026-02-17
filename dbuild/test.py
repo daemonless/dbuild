@@ -638,8 +638,8 @@ def _test_variant(
 def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
     """Capture a screenshot of a built image.
 
-    Starts the container, waits for readiness, captures a screenshot,
-    and saves it.  The container is cleaned up afterwards.
+    Starts the container (or compose stack), waits for readiness,
+    captures a screenshot, and saves it.  Cleaned up afterwards.
 
     Returns 0 on success, 1 on failure.
     """
@@ -655,9 +655,24 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
         return 1
 
     test = cfg.test
+    repo_dir = Path.cwd()
     variant_filter: str | None = getattr(args, "variant", None)
 
-    # Pick first matching variant (default to first)
+    # -- Compose detection --
+    compose_mode = test.compose
+    compose_file: Path | None = None
+
+    if compose_mode:
+        if not shutil.which("podman-compose"):
+            log.error("compose: true but podman-compose is not installed")
+            return 1
+        compose_file = _find_compose_file(repo_dir)
+        if not compose_file:
+            log.error("compose: true but no compose.yaml found")
+            return 1
+        log.info(f"Compose mode: {compose_file}")
+
+    # -- Variant resolution (optional for compose) --
     variant = None
     for v in cfg.variants:
         if variant_filter and v.tag != variant_filter:
@@ -665,15 +680,38 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
         variant = v
         break
 
-    if variant is None:
+    if variant is None and not compose_mode:
         log.error("No matching variant found")
         return 1
 
-    build_ref = f"{cfg.full_image}:build-{variant.tag}"
-    repo_dir = Path.cwd()
+    # -- Config / label reading --
+    tag = variant.tag if variant else None
 
-    # Read labels + merge config
-    label_info = _read_labels(build_ref)
+    if compose_mode:
+        if variant:
+            # Try build-{tag} first (CI), fall back to :{tag} (local)
+            build_ref = f"{cfg.full_image}:build-{tag}"
+            if not podman.image_exists(build_ref):
+                build_ref = f"{cfg.full_image}:{tag}"
+                if not podman.image_exists(build_ref):
+                    log.error(f"No image found: tried build-{tag} and {tag}")
+                    return 1
+                log.info(f"Using local image: {build_ref}")
+            build_tag = f"{cfg.full_image}:build"
+            podman.tag(build_ref, build_tag)
+        label_info: dict = {"port": None, "health": None, "jail_annotations": {}}
+    else:
+        assert variant is not None
+        # Try build-{tag} first (CI), fall back to :{tag} (local)
+        build_ref = f"{cfg.full_image}:build-{tag}"
+        if not podman.image_exists(build_ref):
+            build_ref = f"{cfg.full_image}:{tag}"
+            if not podman.image_exists(build_ref):
+                log.error(f"No image found: tried build-{tag} and {tag}")
+                return 1
+            log.info(f"Using local image: {build_ref}")
+        label_info = _read_labels(build_ref)
+
     port = test.port or label_info["port"]
     health = test.health or label_info["health"]
     https = test.https
@@ -691,43 +729,61 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
 
     ready_patterns = test.ready or _DEFAULT_READY_PATTERNS
 
-    # Determine output path
+    # -- Output path --
     output = getattr(args, "output", None)
     if not output:
-        output = str(repo_dir / ".daemonless" / f"baseline-{variant.tag}.png")
+        if tag:
+            output = str(repo_dir / ".daemonless" / f"baseline-{tag}.png")
+        else:
+            output = str(repo_dir / ".daemonless" / "baseline.png")
 
+    # -- Cleanup registration --
     container_name = f"screenshot-{int(time.time())}-{os.getpid()}"
-    cleanup_entry = (None, container_name)
+    cleanup_entry = (
+        str(compose_file) if compose_mode and compose_file else None,
+        container_name if not compose_mode else None,
+    )
     _cleanup_targets.append(cleanup_entry)
 
-    log.step(f"Capturing screenshot for :{variant.tag}")
-    log.info(f"Image: {build_ref}")
+    label = f":{tag}" if tag else "(compose stack)"
+    log.step(f"Capturing screenshot for {label}")
+    if not compose_mode:
+        log.info(f"Image: {build_ref}")
     log.info(f"Output: {output}")
 
     try:
-        cid = podman.run_detached(
-            build_ref,
-            name=container_name,
-            annotations=annotations,
-        )
-        log.info(f"Started: {cid}")
+        if compose_mode:
+            assert compose_file is not None
+            podman.compose_up(str(compose_file))
+            ip = "127.0.0.1"
+        else:
+            cid = podman.run_detached(
+                build_ref,
+                name=container_name,
+                annotations=annotations,
+            )
+            log.info(f"Started: {cid}")
 
-        # Shell check
-        if not _test_shell(container_name):
-            return 1
+            # Shell check
+            if not _test_shell(container_name):
+                return 1
 
-        ip = podman.inspect_ip(container_name)
-        if not ip:
-            log.error("Could not get container IP")
-            return 1
-        log.info(f"Container IP: {ip}")
+            ip = podman.inspect_ip(container_name)
+            if not ip:
+                log.error("Could not get container IP")
+                return 1
+            log.info(f"Container IP: {ip}")
 
-        # Wait for ready
-        _wait_for_ready(container_name, ready_patterns, test.wait)
+            # Wait for ready
+            _wait_for_ready(container_name, ready_patterns, test.wait)
 
         # Wait for port
         if not _test_port(ip, port, test.wait):
-            output_logs = podman.logs(container_name)
+            if compose_mode:
+                assert compose_file is not None
+                output_logs = podman.compose_logs(str(compose_file))
+            else:
+                output_logs = podman.logs(container_name)
             for line in output_logs.splitlines()[-10:]:
                 log.info(f"  {line}")
             return 1
@@ -735,6 +791,13 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
         # Wait for health if configured
         if health:
             if not _test_health(ip, port, health, test.wait, https=https):
+                if compose_mode:
+                    assert compose_file is not None
+                    output_logs = podman.compose_logs(str(compose_file))
+                else:
+                    output_logs = podman.logs(container_name)
+                for line in output_logs.splitlines()[-10:]:
+                    log.info(f"  {line}")
                 return 1
 
         # Capture screenshot
@@ -755,8 +818,11 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
 
     finally:
         log.info("Cleaning up...")
-        podman.stop(container_name)
-        podman.rm(container_name)
+        if compose_mode and compose_file:
+            podman.compose_down(str(compose_file))
+        else:
+            podman.stop(container_name)
+            podman.rm(container_name)
         if cleanup_entry in _cleanup_targets:
             _cleanup_targets.remove(cleanup_entry)
 
