@@ -789,16 +789,15 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             return 1
 
         # Wait for health if configured
-        if health:
-            if not _test_health(ip, port, health, test.wait, https=https):
-                if compose_mode:
-                    assert compose_file is not None
-                    output_logs = podman.compose_logs(str(compose_file))
-                else:
-                    output_logs = podman.logs(container_name)
-                for line in output_logs.splitlines()[-10:]:
-                    log.info(f"  {line}")
-                return 1
+        if health and not _test_health(ip, port, health, test.wait, https=https):
+            if compose_mode:
+                assert compose_file is not None
+                output_logs = podman.compose_logs(str(compose_file))
+            else:
+                output_logs = podman.logs(container_name)
+            for line in output_logs.splitlines()[-10:]:
+                log.info(f"  {line}")
+            return 1
 
         # Capture screenshot
         from dbuild.screenshot import capture

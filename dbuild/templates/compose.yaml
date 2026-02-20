@@ -1,0 +1,44 @@
+name: {{ name }}
+
+x-daemonless:
+  title: "{{ title }}"
+  icon: ":material-apps:"
+  category: "{{ category }}"
+  description: "{{ description }}"
+  upstream_url: "https://github.com/{{ name }}/{{ name }}"
+  web_url: "https://{{ name }}.org/"
+  freshports_url: "https://www.freshports.org/category/{{ name }}/"
+  user: "bsd"
+  mlock: {{ mlock_bool }}
+  
+  docs:
+    env:
+      PUID: "User ID for the application process"
+      PGID: "Group ID for the application process"
+      TZ: "Timezone for the container"
+    volumes:
+      /config: "Configuration directory"
+    ports:
+      {{ port }}: "Web UI"
+
+services:
+  {{ name }}:
+    image: ghcr.io/daemonless/{{ name }}:latest
+    container_name: {{ name }}
+    restart: unless-stopped
+    
+    {%- if mlock %}
+    annotations:
+      org.freebsd.jail.allow.mlock: "true"
+    {%- endif %}
+
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+
+    volumes:
+      - /path/to/containers/{{ name }}:/config
+
+    ports:
+      - {{ port }}:{{ port }}

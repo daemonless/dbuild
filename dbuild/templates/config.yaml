@@ -3,72 +3,22 @@
 #
 # Full reference: https://github.com/daemonless/dbuild
 
-# ── Build Configuration ───────────────────────────────────────────────
-#
-# type: app or base (default: app)
-#   - app:  application image (version extracted from container)
-#   - base: base/OS image (version = FreeBSD release)
-#
-# build.architectures: list of target architectures (default: [amd64])
-#   Supported: amd64, aarch64, riscv64
-#
-# build.auto_version: extract version from built image (default: false)
-#   Can be set per-variant to override.
-#
-# build.pkg_name: FreeBSD package name for version detection
-#   Used when auto_version is true (e.g. "radarr" → pkg query "%v" radarr)
-#
-# build.ignore: list of Containerfile names to exclude from auto-detection
-#   Built-in ignores: .j2, .bak, .orig, .swp, .tmp
-#   Example: ["Containerfile.dev"]
-#
-# build.variants: list of image variants to build
-#   If omitted, variants are auto-detected from Containerfile / Containerfile.*
-#
-#   Variant fields:
-#     tag:           image tag (e.g. latest, pkg)
-#     containerfile: path to Containerfile (default: Containerfile)
-#     args:          build arguments passed to podman build (key: value)
-#     aliases:       additional tags pushed alongside the primary tag
-#     auto_version:  override build-level auto_version for this variant
-#     default:       mark as the default variant (used by `dbuild info`)
-#     pkg_name:      override build-level pkg_name for this variant
-
 build:
   variants:
     - tag: latest
       containerfile: Containerfile
-
-# ── Container Integration Testing (CIT) ──────────────────────────────
-#
-# Test modes (cumulative -- each includes everything below it):
-#
-#   screenshot  →  health + capture screenshot + visual comparison
-#   health      →  port + HTTP GET to health endpoint (any non-502/503 = pass)
-#   port        →  shell + wait for TCP port to be listening
-#   shell       →  container starts and exec works
-#
-# If mode is omitted, it's auto-detected:
-#   - baseline.png exists      → screenshot
-#   - health endpoint set      → health
-#   - port set (or in labels)  → port
-#   - otherwise                → shell
-#
-# CIT fields:
-#   mode:            test mode (see above, or omit for auto-detect)
-#   port:            TCP port to check (default: from io.daemonless.port label, or 8080)
-#   health:          HTTP path for health check (default: from io.daemonless.healthcheck-url label, or /)
-#   wait:            timeout in seconds for port/health checks (default: 120)
-#   ready:           regex pattern to match in container logs before testing
-#                    (default: common patterns like "Warmup complete", "listening on")
-#   https:           use HTTPS for health/screenshot checks (default: false)
-#   compose:         use podman-compose with .daemonless/compose.yaml (default: false)
-#   screenshot:      URL path to screenshot (only for screenshot mode)
-#   screenshot_wait: seconds to wait after page load before capture
-#   annotations:     jail annotations to pass to podman run
-#                    (e.g. ["org.freebsd.jail.allow.mlock=true"] for .NET apps)
+    - tag: pkg
+      containerfile: Containerfile.pkg
+    - tag: pkg-latest
+      containerfile: Containerfile.pkg
+      args:
+        BASE_VERSION: "15-latest"
 
 cit:
   mode: health
-  port: 8080
+  port: {{ port }}
   health: /
+  {%- if mlock %}
+  annotations:
+    - "org.freebsd.jail.allow.mlock=true"
+  {%- endif %}

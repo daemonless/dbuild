@@ -148,6 +148,46 @@ def _make_parser() -> argparse.ArgumentParser:
         description="Generate starter files for a new dbuild project.",
     )
     init_parser.add_argument(
+        "--name",
+        metavar="NAME",
+        help="application name (e.g. radarr)",
+    )
+    init_parser.add_argument(
+        "--title",
+        metavar="TITLE",
+        help="human-readable title (e.g. Radarr)",
+    )
+    init_parser.add_argument(
+        "--category",
+        metavar="CAT",
+        default="Apps",
+        help="application category (default: Apps)",
+    )
+    init_parser.add_argument(
+        "--type",
+        choices=["dotnet", "node", "go", "generic"],
+        default="generic",
+        help="application type (default: generic)",
+    )
+    init_parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="default application port (default: 8080)",
+    )
+    init_parser.add_argument(
+        "--variants",
+        metavar="LIST",
+        default="latest",
+        help="comma-separated list of variants to scaffold (default: latest)",
+    )
+    init_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="show what would be created without writing to disk",
+    )
+    init_parser.add_argument(
         "--github",
         action="store_true",
         default=False,
