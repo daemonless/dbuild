@@ -8,7 +8,7 @@
 # Usage: sh dbuild-ci.sh [VARIANT]
 #
 # Env vars:
-#   DBUILD_REF   - override the dbuild version to fetch (default: v2)
+#   DBUILD_REF   - override the dbuild version to fetch (default: main)
 #   DBUILD_PATH  - explicit path to dbuild checkout (skips fetch)
 #   GITHUB_TOKEN - registry authentication
 #   GITHUB_ACTOR - registry username (optional)
@@ -16,7 +16,7 @@
 
 set -e
 
-DBUILD_REF="${DBUILD_REF:-v2}"
+DBUILD_REF="${DBUILD_REF:-main}"
 
 # ── Locate dbuild ────────────────────────────────────────────────────
 
