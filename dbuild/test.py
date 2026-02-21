@@ -319,9 +319,11 @@ def _test_health(
             code = resp.status
             conn.close()
 
-            if code not in (502, 503):
+            if 200 <= code < 400:
                 log.info(f"Health ready after {elapsed}s (HTTP {code})")
                 return True
+            else:
+                log.info(f"Health not ready: HTTP {code}")
         except (ConnectionRefusedError, ConnectionResetError, OSError, http.client.HTTPException):
             pass
 
