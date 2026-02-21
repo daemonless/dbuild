@@ -141,6 +141,14 @@ def _make_parser() -> argparse.ArgumentParser:
         description="Display detected configuration in a human-readable format.",
     )
 
+    # -- generate --
+    sub.add_parser(
+        "generate",
+        aliases=["docs"],
+        help="generate README.md and Containerfiles from compose.yaml metadata",
+        description="Render documentation and build files using Jinja2 templates.",
+    )
+
     # -- init --
     init_parser = sub.add_parser(
         "init",
@@ -356,6 +364,13 @@ def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
     return rc if rc else 0
 
 
+def _dispatch_docs(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the docs subcommand."""
+    from dbuild import docs
+    rc = docs.run(cfg, args)
+    return rc if rc else 0
+
+
 _DISPATCHERS: dict[str, callable] = {
     "build": _dispatch_build,
     "test": _dispatch_test,
@@ -366,6 +381,8 @@ _DISPATCHERS: dict[str, callable] = {
     "info": _dispatch_info,
     "screenshot": _dispatch_screenshot,
     "ci-run": _dispatch_ci_run,
+    "generate": _dispatch_docs,
+    "docs": _dispatch_docs,
 }
 
 # Commands that run without loading project config

@@ -178,8 +178,12 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             log.warn("No variants detected")
             return
         log.step(f"Image: {cfg.full_image}")
-        log.info(f"Type: {cfg.type}")
+        if cfg.metadata.title:
+            log.info(f"Title: {cfg.metadata.title}")
+        log.info(f"Type: {cfg.type} ({cfg.metadata.category})")
         log.info(f"Architectures: {', '.join(cfg.architectures)}")
+        if cfg.test and cfg.test.annotations:
+            log.info(f"Annotations: {', '.join(cfg.test.annotations)}")
         log.info(f"Variants: {len(cfg.variants)}")
         for entry in matrix:
             log.info(f"  {entry['tag']} ({entry['arch']}) -> {entry['containerfile']}")

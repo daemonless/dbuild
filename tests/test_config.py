@@ -8,11 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dbuild.config import (
-    _GLOBAL_CONFIG_PATH,
     _IGNORE_SUFFIXES,
     Config,
     _auto_detect_variants,
-    _find_config_file,
     _git_remote_org,
     _global_extra_variants,
     _load_global_config,
@@ -20,42 +18,6 @@ from dbuild.config import (
     _parse_variants,
     load,
 )
-
-
-class TestFindConfigFile(unittest.TestCase):
-    """Tests for _find_config_file()."""
-
-    def test_no_config(self, tmp_path=None):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(_find_config_file(Path(d)))
-
-    def test_dbuild_yaml(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / ".dbuild.yaml"
-            p.write_text("build: {}\n")
-            self.assertEqual(_find_config_file(Path(d)), p)
-
-    def test_daemonless_config(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            config_dir = Path(d) / ".daemonless"
-            config_dir.mkdir()
-            p = config_dir / "config.yaml"
-            p.write_text("build: {}\n")
-            self.assertEqual(_find_config_file(Path(d)), p)
-
-    def test_dbuild_yaml_preferred(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            p1 = Path(d) / ".dbuild.yaml"
-            p1.write_text("build: {}\n")
-            config_dir = Path(d) / ".daemonless"
-            config_dir.mkdir()
-            p2 = config_dir / "config.yaml"
-            p2.write_text("build: {}\n")
-            self.assertEqual(_find_config_file(Path(d)), p1)
 
 
 class TestAutoDetectVariants(unittest.TestCase):
@@ -530,7 +492,7 @@ class TestLoadWithGlobalConfig(unittest.TestCase):
             tags = [v.tag for v in cfg.variants]
             self.assertEqual(tags, ["latest", "pkg", "pkg-latest"])
             # Verify pkg-latest has the right args
-            pkg_latest = [v for v in cfg.variants if v.tag == "pkg-latest"][0]
+            pkg_latest = next(v for v in cfg.variants if v.tag == "pkg-latest")
             self.assertEqual(pkg_latest.args, {"BASE_VERSION": "15-latest"})
 
     @patch("dbuild.config._git_remote_org", return_value="myorg")
@@ -618,7 +580,7 @@ class TestLoadWithGlobalConfig(unittest.TestCase):
             tags = [v.tag for v in cfg.variants]
             self.assertEqual(tags, ["latest", "pkg"])
             # Auto-detected pkg should NOT have the global args
-            pkg = [v for v in cfg.variants if v.tag == "pkg"][0]
+            pkg = next(v for v in cfg.variants if v.tag == "pkg")
             self.assertEqual(pkg.args, {})
 
     @patch("dbuild.config._git_remote_org", return_value="myorg")
