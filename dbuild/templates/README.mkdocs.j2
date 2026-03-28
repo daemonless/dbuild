@@ -27,9 +27,41 @@
 !!! tip "Successor"
     See **[{{ deprecated.successor }}]({{ deprecated.successor }})** for an alternative.
 
-{% endif -%}
-{% endif -%}
+{% endif %}
+{% endif %}
 {%- endblock %}
+
+{% block screenshots %}
+{% if screenshots %}
+<section class="splide screenshot-carousel" aria-label="{{ title }} screenshots">
+  <div class="splide__track">
+    <ul class="splide__list">
+{% for shot in screenshots %}
+      <li class="splide__slide">
+        <a href="{{ shot }}" class="glightbox" data-gallery="{{ name }}">
+          <img src="{{ shot }}" loading="lazy" alt="{{ title }} screenshot {{ loop.index }}">
+        </a>
+      </li>
+{% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block header_meta %}
+| | |
+|---|---|
+{%- if ports %}
+| :material-lan-connect: **Port** | `{{ ports[0].port }}` |
+{%- endif %}
+| :material-docker: **Registry** | [`{{ registry }}/{{ name }}`](https://github.com/daemonless/{{ name }}/pkgs/container/{{ name }}) |
+| :fontawesome-brands-github: **Daemonless** | [daemonless/{{ name }}](https://github.com/daemonless/{{ name }}) |
+| :material-code-tags: **Source** | [{{ upstream_url | replace('https://github.com/', '') | replace('https://', '') | truncate(40, true, '…') }}]({{ upstream_url }}) |
+{%- if web_url %}
+| :material-web: **Website** | [{{ web_url | replace('https://', '') | replace('http://', '') | trim('/') }}]({{ web_url }}) |
+{%- endif %}
+{% endblock %}
 
 {% block prerequisites -%}
 !!! failure "Root Privileges Required"
