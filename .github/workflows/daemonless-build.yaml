@@ -146,9 +146,18 @@ jobs:
 
             VARIANT="${{ matrix.tag }}"
             ARCH="${{ matrix.arch }}"
+            IMAGE_NAME="${{ inputs.image_name }}"
+
+            # Read old version from sbom.json before build
+            OLD_VERSION=$(jq -r --arg tag "$VARIANT" '.tags[$tag].app_version // ""' sbom.json 2>/dev/null || echo "")
+            echo "$OLD_VERSION" > .version-old
 
             # Build
             $DBUILD -v build --variant "$VARIANT" --arch "$ARCH"
+
+            # Extract new version from built image
+            NEW_VERSION=$(podman run --rm --entrypoint "" "ghcr.io/daemonless/${IMAGE_NAME}:build-${VARIANT}" cat /app/version 2>/dev/null || echo "")
+            echo "$NEW_VERSION" > .version-new
 
             # Install screenshot deps only if CIT mode requires it
             if grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; then
@@ -220,18 +229,32 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        uses: daemonless/daemonless/.github/actions/dockerhub-desc@main
+        uses: ./.github/actions/dockerhub-desc
         with:
           image_name: ${{ inputs.image_name }}
           dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine version label
+        id: ver
+        if: always()
+        run: |
+          OLD=$(cat .version-old 2>/dev/null | tr -d '[:space:]' || echo "")
+          NEW=$(cat .version-new 2>/dev/null | tr -d '[:space:]' || echo "")
+          if [ -n "$NEW" ] && [ -n "$OLD" ] && [ "$OLD" != "$NEW" ]; then
+            echo "label=${OLD} → ${NEW}" >> $GITHUB_OUTPUT
+          elif [ -n "$NEW" ]; then
+            echo "label=${NEW}" >> $GITHUB_OUTPUT
+          else
+            echo "label=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Discord notification
         if: always()
         continue-on-error: true
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        uses: daemonless/daemonless/.github/actions/discord-notify@main
+        uses: ./.github/actions/discord-notify
         with:
           webhook_url: ${{ secrets.DISCORD_WEBHOOK }}
           image_name: ${{ inputs.image_name }}
@@ -242,6 +265,7 @@ jobs:
           run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           branch: ${{ github.ref_name }}
           has_dockerhub: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+          version: ${{ steps.ver.outputs.label }}
 
   # Create multi-arch manifests
   create-manifests:
