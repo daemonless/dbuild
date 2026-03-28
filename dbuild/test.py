@@ -779,7 +779,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Started: {cid}")
 
             # Shell check
-            if not _test_shell(container_name):
+            if not _test_shell(container_name, backend=PodmanBackend()):
                 return 1
 
             ip = podman.inspect_ip(container_name)
@@ -789,7 +789,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Container IP: {ip}")
 
             # Wait for ready
-            _wait_for_ready(container_name, ready_patterns, test.wait)
+            _wait_for_ready(container_name, ready_patterns, test.wait, backend=PodmanBackend())
 
         # Wait for port
         if not _test_port(ip, port, test.wait):

@@ -8,6 +8,20 @@ dbuild \- FreeBSD OCI container image build tool
 dbuild provides a streamlined interface for creating and managing OCI-compliant containers that run natively in FreeBSD Jails. It eliminates the friction of configuring ocijail, networking, and jail templates by using a 'Registry-First' approach. Configuration is automatically derived from Git remotes and standard Compose files, allowing for reproducible builds across local and CI environments.
 .SH COMMANDS
 .TP
+\fBbaseline\fR
+Start a container, wait for it to be ready, and capture a baseline screenshot.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--variant\fR
+filter to a single variant by tag (e.g. latest, pkg)
+.TP
+\fB-o\fR, \fB--output\fR
+save screenshot to FILE (default: .daemonless/baseline.png)
+.RE
+.TP
 \fBbuild\fR
 Build container images from Containerfiles.
 .RS
@@ -177,20 +191,6 @@ filter to a single variant by tag (e.g. latest, pkg)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
-.RE
-.TP
-\fBscreenshot\fR
-Start a container, wait for it to be ready, and capture a screenshot.
-.RS
-.TP
-\fB-h\fR, \fB--help\fR
-show this help message and exit
-.TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
-.TP
-\fB-o\fR, \fB--output\fR
-save screenshot to FILE (default: .daemonless/baseline.png)
 .RE
 .TP
 \fBtest\fR

@@ -254,14 +254,14 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # -- screenshot --
-    screenshot_parser = sub.add_parser(
-        "screenshot",
-        help="capture a screenshot of a running container",
-        description="Start a container, wait for it to be ready, and capture a screenshot.",
+    # -- baseline --
+    baseline_parser = sub.add_parser(
+        "baseline",
+        help="capture a baseline screenshot for CIT comparison",
+        description="Start a container, wait for it to be ready, and capture a baseline screenshot.",
     )
-    screenshot_parser.add_argument("--variant", **variant_kw)
-    screenshot_parser.add_argument(
+    baseline_parser.add_argument("--variant", **variant_kw)
+    baseline_parser.add_argument(
         "-o", "--output",
         metavar="FILE",
         default=None,
@@ -375,8 +375,8 @@ def _dispatch_info(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _dispatch_screenshot(cfg: Config, args: argparse.Namespace) -> int:
-    """Run the screenshot subcommand."""
+def _dispatch_baseline(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the baseline subcommand."""
     from dbuild import test as test_mod
     rc = test_mod.run_screenshot(cfg, args)
     return rc if rc else 0
@@ -404,7 +404,7 @@ _DISPATCHERS: dict[str, callable] = {
     "manifest": _dispatch_manifest,
     "detect": _dispatch_detect,
     "info": _dispatch_info,
-    "screenshot": _dispatch_screenshot,
+    "baseline": _dispatch_baseline,
     "ci-run": _dispatch_ci_run,
     "generate": _dispatch_docs,
     "docs": _dispatch_docs,
