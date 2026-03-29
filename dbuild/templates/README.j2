@@ -149,6 +149,7 @@ podman run -d --name {{ name }} \
 {#- ==================================================================
     Template Output
     ================================================================== #}
+{%- block frontmatter %}{% endblock -%}
 {%- block deprecation_notice -%}
 {%- if deprecated %}
 > [!WARNING]
