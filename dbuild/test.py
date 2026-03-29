@@ -523,7 +523,7 @@ def _test_variant(
     elif force_backend == "podman":
         backend = PodmanBackend()
     else:  # auto
-        backend = AppJailBackend() if (cfg.metadata.appjail is not None and AppJailBackend.available()) else PodmanBackend()
+        backend = AppJailBackend() if (cfg.metadata.appjail and AppJailBackend.available()) else PodmanBackend()
 
     cname = f"cit-{os.getpid()}-{cfg.image}"
 
@@ -876,7 +876,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     # Determine which backends to run
     if backend == "all":
         backends = ["podman"]
-        if cfg.metadata.appjail is not None:
+        if cfg.metadata.appjail:
             if AppJailBackend.available():
                 backends.append("appjail")
             else:
