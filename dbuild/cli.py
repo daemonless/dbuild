@@ -85,6 +85,12 @@ def _make_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--variant", **variant_kw)
     build_parser.add_argument("--arch", **arch_kw)
     build_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        default=False,
+        help="disable build cache (passes --no-cache to podman build)",
+    )
+    build_parser.add_argument(
         "-p", "--parallel",
         metavar="N",
         nargs="?",

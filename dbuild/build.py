@@ -57,6 +57,7 @@ def _build_variant(
     arch: str,
     *,
     prefix: str | None = None,
+    no_cache: bool = False,
 ) -> str:
     """Build one variant for one architecture.  Returns the build tag."""
     freebsd_arch = _map_arch(arch)
@@ -91,6 +92,7 @@ def _build_variant(
         build_args=build_args,
         secrets=secrets,
         prefix=prefix,
+        no_cache=no_cache,
     )
     log.timer_stop(f"build:{variant.tag}")
 
@@ -136,6 +138,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     variant_filter: str | None = getattr(args, "variant", None)
     arch: str = getattr(args, "arch", None) or cfg.architectures[0]
     parallel: int | None = getattr(args, "parallel", None)
+    no_cache: bool = getattr(args, "no_cache", False)
 
     variants = [
         v for v in cfg.variants
@@ -158,7 +161,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             for variant in variants:
                 prefix = f"[{variant.tag:<{max_tag_len}}] "
-                futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix)] = variant.tag
+                futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix, no_cache=no_cache)] = variant.tag
 
             for future in as_completed(futures):
                 tag = futures[future]
@@ -170,7 +173,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
                     raise
     else:
         for variant in variants:
-            ref = _build_variant(cfg, variant, arch)
+            ref = _build_variant(cfg, variant, arch, no_cache=no_cache)
             built.append(ref)
 
     log.step("Build summary")

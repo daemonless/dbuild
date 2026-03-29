@@ -190,6 +190,12 @@ Source: dbuild templates
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/daemonless/{{ name }}/build.yaml?style=flat-square&label=Build&color=green)](https://github.com/daemonless/{{ name }}/actions)
 [![Last Commit](https://img.shields.io/github/last-commit/daemonless/{{ name }}?style=flat-square&label=Last+Commit&color=blue)](https://github.com/daemonless/{{ name }}/commits)
+{%- if mlock %}
+[![mlock Required](https://img.shields.io/badge/mlock-required-orange?style=flat-square&logo=freebsd&logoColor=white)]({% if render_mode == "mkdocs" %}/guides/ocijail-patch/{% else %}https://daemonless.io/guides/ocijail-patch/{% endif %})
+{%- endif %}
+{%- if sysvipc %}
+[![sysvipc Required](https://img.shields.io/badge/sysvipc-required-orange?style=flat-square&logo=freebsd&logoColor=white)]({% if render_mode == "mkdocs" %}/guides/ocijail-patch/{% else %}https://daemonless.io/guides/ocijail-patch/{% endif %})
+{%- endif %}
 
 {{ description }}
 {%- endblock %}

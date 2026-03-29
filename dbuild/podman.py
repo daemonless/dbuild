@@ -90,6 +90,7 @@ def build(
     network: str = "host",
     extra_args: list[str] | None = None,
     prefix: str | None = None,
+    no_cache: bool = False,
 ) -> str:
     """Run ``podman build`` and return the image ID.
 
@@ -103,6 +104,8 @@ def build(
         "-t", tag,
         f"--network={network}",
     ]
+    if no_cache:
+        cmd.append("--no-cache")
     for key, val in (build_args or {}).items():
         cmd += ["--build-arg", f"{key}={val}"]
     for name, value in (secrets or {}).items():

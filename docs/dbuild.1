@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-03-28" "dbuild 1.8.1" "User Commands"
+.TH DBUILD 1 "2026-03-29" "dbuild 1.8.1" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -34,6 +34,9 @@ filter to a single variant by tag (e.g. latest, pkg)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
+.TP
+\fB--no-cache\fR
+disable build cache (passes --no-cache to podman build)
 .TP
 \fB-p\fR, \fB--parallel\fR
 build variants in parallel; optionally limit to N concurrent builds
