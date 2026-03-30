@@ -39,7 +39,7 @@ jobs:
       manifest_tags: ${{ steps.detect.outputs.manifest_tags }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: pip install PyYAML
@@ -67,22 +67,23 @@ jobs:
 
     steps:
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: endersonmenezes/free-disk-space@v3
         with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: false
+          remove_tool_cache: true
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox mono-complete"
+          remove_packages_one_command: true
+          rm_cmd: rmz
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download pre-build artifact
         if: inputs.pre_artifact_name != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.pre_artifact_name }}
           path: ${{ inputs.pre_artifact_path }}
@@ -195,7 +196,7 @@ jobs:
             fi
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cit-results-${{ matrix.tag }}${{ matrix.arch_suffix }}
@@ -203,7 +204,7 @@ jobs:
           retention-days: 30
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: success() && github.event_name != 'pull_request'
         with:
           name: sbom-${{ matrix.tag }}${{ matrix.arch_suffix }}
@@ -317,18 +318,19 @@ jobs:
 
     steps:
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: endersonmenezes/free-disk-space@v3
         with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: false
+          remove_tool_cache: true
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox mono-complete"
+          remove_packages_one_command: true
+          rm_cmd: rmz
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
@@ -372,7 +374,7 @@ jobs:
               --json cit-results/${{ inputs.image_name }}.json
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cit-results
@@ -410,10 +412,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all SBOM artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: sbom-*
           path: sbom-artifacts/
