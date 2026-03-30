@@ -91,7 +91,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
 === ":material-docker: Podman Compose"
 
-    ```yaml
+    ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
     {{ compose_snippet(port_var) | indent(4) }}
     ```
 
@@ -103,13 +103,13 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {% endif %}
 === ":material-console: Podman CLI"
 
-    ```bash
+    ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
     {{ cli_snippet(port_var) | indent(4) }}
     ```
 
 === ":simple-ansible: Ansible"
 
-    ```yaml
+    ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
     {{ ansible_snippet(port_var) | indent(4) }}
     ```
 {% endblock %}

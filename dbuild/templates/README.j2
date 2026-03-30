@@ -66,6 +66,19 @@ services:
 {%- endmacro %}
 
 {%- macro appjail_snippet() -%}
+{%- if render_mode == "mkdocs" %}
+``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename=".env" }
+{% include 'appjail.env.j2' %}
+```
+
+```yaml { data-zip-bundle="{{ name }}-appjail" data-zip-filename="appjail-director.yaml" }
+{% include 'appjail-director.yml.j2' %}
+```
+
+``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="Makejail" }
+{% include 'Makejail.j2' %}
+```
+{%- else %}
 **.env**:
 
 ```
@@ -83,6 +96,7 @@ services:
 ```
 {% include 'Makejail.j2' %}
 ```
+{%- endif %}
 {%- endmacro %}
 
 {%- macro cli_snippet(override_port=None) -%}
