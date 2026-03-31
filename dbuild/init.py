@@ -255,6 +255,23 @@ def _render_template(template_name: str, context: dict[str, str]) -> str | None:
     else:
         content = re.sub(r"{%- if mlock %}.*?{%- endif %}", "", content, flags=re.DOTALL)
 
+    # Handle variant conditionals: {%- if "tag" in variants %}...{%- endif %}
+    variants = context.get("variants", [])
+    if isinstance(variants, str):
+        variants = [v.strip() for v in variants.split(",")]
+
+    def _variant_sub(m: re.Match) -> str:
+        tag = m.group(1)
+        block = m.group(2)
+        return block.strip("\n") + "\n" if tag in variants else ""
+
+    content = re.sub(
+        r'[ \t]*\{%- if "(\w[\w-]*)" in variants %\}\n?(.*?)\n?[ \t]*\{%- endif %\}[ \t]*\n?',
+        _variant_sub,
+        content,
+        flags=re.DOTALL,
+    )
+
     return content
 
 
@@ -331,6 +348,7 @@ def run(args: argparse.Namespace) -> int:
             f"https://www.freshports.org/net-p2p/{app_name}/"
         ),
         "community":      args.community or "",
+        "variants":       variants,
         "pkgname":        port_meta.get("pkgname") or app_name,
         "packages":       port_meta.get("packages") or app_name,
         "run_deps":       port_meta.get("run_deps") or app_name,

@@ -5,14 +5,20 @@
 
 build:
   variants:
+{%- if "latest" in variants %}
     - tag: latest
       containerfile: Containerfile
+{%- endif %}
+{%- if "pkg" in variants %}
     - tag: pkg
       containerfile: Containerfile.pkg
+{%- endif %}
+{%- if "pkg-latest" in variants %}
     - tag: pkg-latest
       containerfile: Containerfile.pkg
       args:
         BASE_VERSION: "15-latest"
+{%- endif %}
 
 cit:
   mode: health
