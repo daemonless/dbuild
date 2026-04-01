@@ -8,6 +8,8 @@ know about CI, or touch the network.
 from __future__ import annotations
 
 import os
+
+DEFAULT_COMMUNITY = "Discord:https://discord.gg/Kb9tkhecZT"
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any

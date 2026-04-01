@@ -11,8 +11,7 @@ x-daemonless:
   user: "bsd"
   mlock: {{ mlock_bool }}
   community: "{{ community }}"
-
-  appjail:
+  appjail: true
 
   docs:
     env:

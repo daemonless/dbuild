@@ -17,7 +17,7 @@ import dataclasses
 
 import dbuild
 from dbuild import log
-from dbuild.config import AppTestConfig, Config, DeprecationInfo, Metadata, Variant
+from dbuild.config import AppTestConfig, Config, DEFAULT_COMMUNITY, DeprecationInfo, Metadata, Variant
 
 # Constants for placeholder generation
 CONFIG_ROOT_VAR = "@CONTAINER_CONFIG_ROOT@"
@@ -237,7 +237,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     community_url = ""
     community_raw = community_override or meta.community
     if not community_raw and "daemonless" in cfg.registry.lower():
-        community_raw = "Discord:https://discord.gg/Kb9tkhecZT"
+        community_raw = DEFAULT_COMMUNITY
 
     if community_raw and ":" in community_raw:
         community_name, community_url = community_raw.split(":", 1)

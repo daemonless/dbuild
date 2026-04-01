@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 from dbuild import log
+from dbuild.config import DEFAULT_COMMUNITY
 
 # Templates are co-located in the package
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -347,7 +348,7 @@ def run(args: argparse.Namespace) -> int:
             port_meta.get("freshports_url") or
             f"https://www.freshports.org/net-p2p/{app_name}/"
         ),
-        "community":      args.community or "",
+        "community":      args.community or DEFAULT_COMMUNITY,
         "variants":       variants,
         "pkgname":        port_meta.get("pkgname") or app_name,
         "packages":       port_meta.get("packages") or app_name,
