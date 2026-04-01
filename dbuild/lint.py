@@ -149,6 +149,25 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                         f" Valid: {', '.join(sorted(valid_archs))}"
                     )
 
+    if compose_path.exists() and data:
+        services = data.get("services", {})
+        for svc_name, svc in services.items():
+            image = svc.get("image", "")
+            if image.startswith("localhost/"):
+                warnings.append(
+                    f"Service '{svc_name}' image references localhost: {image!r}"
+                    " — run dbuild generate on a host with a git remote set"
+                )
+
+    readme_path = repo_path / "README.md"
+    if readme_path.exists():
+        readme_text = readme_path.read_text()
+        if "localhost/" in readme_text:
+            warnings.append(
+                "README.md contains localhost/ image references"
+                " — run dbuild generate on a host with a git remote set"
+            )
+
     if verbose:
         print("  checking Containerfile")
     has_containerfile = any(

@@ -231,7 +231,8 @@ def _detect_registry() -> str:
 
     Falls back to ``ghcr.io/<org>`` where ``<org>`` is extracted from
     the git remote URL (e.g. ``github.com/daemonless/radarr`` → ``ghcr.io/daemonless``).
-    If the remote cannot be parsed, returns ``localhost`` so builds still work locally.
+    If the remote cannot be parsed, falls back to ``ghcr.io/daemonless``.
+    Override with the ``DBUILD_REGISTRY`` environment variable.
     """
     env = os.environ.get("DBUILD_REGISTRY")
     if env:
@@ -240,7 +241,7 @@ def _detect_registry() -> str:
     if org:
         org = org.lower()
         return f"ghcr.io/{org}"
-    return "localhost"
+    return "ghcr.io/daemonless"
 
 
 def _git_remote_org() -> str | None:
