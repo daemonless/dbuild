@@ -427,7 +427,7 @@ jobs:
             --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{image: $image, generated: $generated, tags: {}}' > sbom.json
 
-          for f in sbom-artifacts/sbom-*/*-sbom.json; do
+          for f in $(find sbom-artifacts/ -name '*-sbom.json'); do
             [ -f "$f" ] || continue
             tag=$(jq -r '.tag' "$f")
             [ -z "$tag" ] && continue
