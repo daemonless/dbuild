@@ -2,8 +2,10 @@ ARG BASE_VERSION=15
 FROM ghcr.io/daemonless/base:${BASE_VERSION}
 
 ARG FREEBSD_ARCH=amd64
-ARG PACKAGES="{{ packages }}"
-
+ARG PKG_NAME="{{ pkgname }}"
+{% if packages == pkgname %}ARG PACKAGES="${PKG_NAME}"
+{% else %}ARG PACKAGES="{{ packages }}"
+{% endif %}
 LABEL org.opencontainers.image.title="{{ title }}" \
       org.opencontainers.image.description="{{ description }}" \
       org.opencontainers.image.source="{{ repo_url }}" \
@@ -15,14 +17,15 @@ LABEL org.opencontainers.image.title="{{ title }}" \
       io.daemonless.port="{{ port }}" \
       io.daemonless.arch="${FREEBSD_ARCH}" \
       io.daemonless.pkg-source="pkg" \
-      io.daemonless.packages="${PACKAGES}"{%- if mlock %} \
+      io.daemonless.packages="${PACKAGES}" \
+      io.daemonless.pkg-name="${PKG_NAME}"{%- if mlock %} \
       org.freebsd.jail.allow.mlock="required"{%- endif %}
 
 # Install {{ name }}
 RUN pkg update && \
     pkg install -y ${PACKAGES} && \
     mkdir -p /app && \
-    pkg query '%v' {{ pkgname }} > /app/version && \
+    pkg query '%v' ${PKG_NAME} > /app/version && \
     pkg clean -ay && \
     rm -rf /var/cache/pkg/* /var/db/pkg/repos/*
 
