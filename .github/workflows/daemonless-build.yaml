@@ -440,6 +440,9 @@ jobs:
                sbom.json > tmp.json && mv tmp.json sbom.json
           done
 
+          # Sort all keys and package lists alphabetically for stable ordering
+          jq -S '.tags[].packages[] |= sort_by(.name)' sbom.json > tmp.json && mv tmp.json sbom.json
+
           echo "Tags: $(jq -r '.tags | keys | join(", ")' sbom.json)"
           jq -r '.tags | to_entries[] | "\(.key): \(.value.summary.total) packages"' sbom.json
 
