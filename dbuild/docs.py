@@ -17,7 +17,14 @@ import dataclasses
 
 import dbuild
 from dbuild import log
-from dbuild.config import AppTestConfig, Config, DEFAULT_COMMUNITY, DeprecationInfo, Metadata, Variant
+from dbuild.config import (
+    DEFAULT_COMMUNITY,
+    AppTestConfig,
+    Config,
+    DeprecationInfo,
+    Metadata,
+    Variant,
+)
 
 # Constants for placeholder generation
 CONFIG_ROOT_VAR = "@CONTAINER_CONFIG_ROOT@"

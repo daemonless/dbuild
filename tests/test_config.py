@@ -266,13 +266,13 @@ class TestLoad(unittest.TestCase):
             self.assertEqual(cfg.variants[0].tag, "latest")
 
     @patch("dbuild.config._git_remote_org", return_value=None)
-    def test_registry_fallback_localhost(self, _mock_org):
+    def test_registry_fallback_daemonless(self, _mock_org):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             base = Path(d)
             (base / "Containerfile").touch()
             cfg = load(base)
-            self.assertEqual(cfg.registry, "localhost")
+            self.assertEqual(cfg.registry, "ghcr.io/daemonless")
 
     @patch.dict("os.environ", {"DBUILD_REGISTRY": "myregistry.io/org"})
     def test_registry_env_override(self):

@@ -78,7 +78,7 @@ services:
 ``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="Makejail" }
 {% include 'Makejail.j2' %}
 ```
-{%- else %}
+{%- else -%}
 **.env**:
 
 ```
@@ -277,9 +277,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```yaml
 {{ compose_snippet() }}
 ```
-
-{%- if appjail_enabled %}
-
+{% if appjail_enabled %}
 ### AppJail Director
 
 {{ appjail_snippet() }}

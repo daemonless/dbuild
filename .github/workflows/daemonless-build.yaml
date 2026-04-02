@@ -101,6 +101,7 @@ jobs:
           DBUILD_REGISTRY: ghcr.io/daemonless
         with:
           release: "15.0"
+          vnc_password: ${{ secrets.VNC_PASSWORD }}
           arch: ${{ matrix.vm_arch }}
           sync: ${{ matrix.vm_sync }}
           usesh: true
@@ -339,6 +340,7 @@ jobs:
         uses: vmactions/freebsd-vm@v1.4.4
         with:
           release: "15.0"
+          vnc_password: ${{ secrets.VNC_PASSWORD }}
           usesh: true
           copyback: true
           data-dir: /mnt/freebsd-vm
