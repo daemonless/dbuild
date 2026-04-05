@@ -28,11 +28,11 @@ services:
     image: ghcr.io/daemonless/{{ name }}:latest
     container_name: {{ name }}
     restart: unless-stopped
-    
-    {%- if mlock %}
+{%- if mlock %}
+
     annotations:
       org.freebsd.jail.allow.mlock: "true"
-    {%- endif %}
+{%- endif %}
 
     environment:
       - PUID=1000

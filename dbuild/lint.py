@@ -159,6 +159,21 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                     " — run dbuild generate on a host with a git remote set"
                 )
 
+    if compose_path.exists():
+        lines = compose_path.read_text().splitlines()
+        for i, line in enumerate(lines, 1):
+            if line != line.rstrip():
+                warnings.append(f"compose.yaml:{i}: trailing whitespace")
+        blank_runs = 0
+        for i, line in enumerate(lines, 1):
+            if line.strip() == "":
+                blank_runs += 1
+                if blank_runs > 1:
+                    warnings.append(f"compose.yaml:{i}: consecutive blank lines")
+                    blank_runs = 0  # report once per run
+            else:
+                blank_runs = 0
+
     readme_path = repo_path / "README.md"
     if readme_path.exists():
         readme_text = readme_path.read_text()

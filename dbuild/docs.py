@@ -201,11 +201,16 @@ def generate_manpage(parser: argparse.ArgumentParser) -> str:
 
 
 def _get_jinja_env(base: Path) -> jinja2.Environment | None:
-    """Create Jinja2 environment looking first in .daemonless/templates, then bundled."""
+    """Create Jinja2 environment with override priority:
+    1. repo root (README.j2 alongside Containerfile.j2)
+    2. .daemonless/templates/
+    3. bundled dbuild templates
+    """
     if jinja2 is None:
         return None
 
     search_paths = [
+        base,
         base / ".daemonless" / "templates",
         Path(__file__).parent / "templates",
     ]
@@ -447,13 +452,16 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         log.error("Could not find dbuild templates.")
         return 1
 
-    # 1. Generate README.md (if docs: manual isn't set)
+    # 1. Generate README.md (if docs: manual isn't set, or if a local README.j2 exists)
     is_manual = (cfg.metadata.docs == "manual" or
                  (isinstance(cfg.metadata.docs, dict) and cfg.metadata.docs.get("manual", False)))
+    has_local_readme_j2 = (base / "README.j2").exists()
 
-    if is_manual:
+    if is_manual and not has_local_readme_j2:
         log.info("Skipping README.md generation (docs: manual)")
     else:
+        if is_manual and has_local_readme_j2:
+            log.info("docs: manual — using local README.j2 override")
         try:
             template = env.get_template("README.j2")
             content = template.render(context, render_mode="github")
