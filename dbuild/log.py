@@ -17,8 +17,12 @@ _COLORS = {
     "green": "\033[32m",
     "yellow": "\033[33m",
     "blue": "\033[34m",
+    "magenta": "\033[35m",
     "cyan": "\033[36m",
 }
+
+# Colors cycled across parallel variant tags (avoid red — that's errors)
+_TAG_COLORS = ["cyan", "yellow", "green", "blue", "magenta"]
 
 # Mutable module-level state — intentionally not ALL_CAPS constants.
 _use_color: bool | None = None  # pylint: disable=invalid-name
@@ -54,6 +58,12 @@ def _c(name: str) -> str:
     if _color_enabled():
         return _COLORS.get(name, "")
     return ""
+
+
+def color_tag(text: str, index: int) -> str:
+    """Wrap *text* in a cycling color for parallel variant prefixes."""
+    color = _TAG_COLORS[index % len(_TAG_COLORS)]
+    return f"{_c(color)}{_c('bold')}{text}{_c('reset')}"
 
 
 # ── Public API ────────────────────────────────────────────────────────

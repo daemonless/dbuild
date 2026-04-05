@@ -159,8 +159,9 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
 
         futures = {}
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            for variant in variants:
-                prefix = f"[{variant.tag:<{max_tag_len}}] "
+            for idx, variant in enumerate(variants):
+                colored = log.color_tag(f"{variant.tag:<{max_tag_len}}", idx)
+                prefix = f"[{colored}] "
                 futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix, no_cache=no_cache)] = variant.tag
 
             for future in as_completed(futures):

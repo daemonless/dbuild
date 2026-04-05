@@ -196,6 +196,14 @@ filter to a single variant by tag (e.g. latest, pkg)
 override target architecture (e.g. amd64, aarch64)
 .RE
 .TP
+\fBscreenshot\fR
+Download one or more upstream images into .daemonless/screenshots/. Uses 'file --mime-type' to detect the real format and SHA-256 to skip duplicates.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.RE
+.TP
 \fBtest\fR
 Run container integration tests against built images.
 .RS

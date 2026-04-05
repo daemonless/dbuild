@@ -137,6 +137,7 @@ def oci_run(jail_name: str, image_ref: str, *, allow: list[str] | None = None) -
         "mount.devfs",
         "persist",
         "ip4: inherit",   # allow socket binding (required for services)
+        "ip6: inherit",
         *sorted(all_allows),
     ]
 

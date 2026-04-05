@@ -222,6 +222,21 @@ def _get_jinja_env(base: Path) -> jinja2.Environment | None:
     return jinja2.Environment(loader=jinja2.ChoiceLoader(loaders))
 
 
+_SCREENSHOT_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".mp4", ".webm"}
+
+
+def _collect_screenshots(base: Path) -> list[str]:
+    """Return sorted relative paths for files in .daemonless/screenshots/."""
+    shots_dir = base / ".daemonless" / "screenshots"
+    if not shots_dir.is_dir():
+        return []
+    return sorted(
+        str(p.relative_to(base))
+        for p in shots_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in _SCREENSHOT_EXTS
+    )
+
+
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
     """Build a context dict for templates with enriched env/vol/port data from Config."""
     meta = cfg.metadata
@@ -296,6 +311,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "appjail_enabled": appjail_enabled,
         "docs": meta.docs,
         "deprecated": meta.deprecated,
+        "screenshots": _collect_screenshots(Path.cwd()),
         "env": [],
         "volumes": [],
         "ports": [],

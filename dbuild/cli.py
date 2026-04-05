@@ -260,6 +260,22 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- screenshot --
+    screenshot_parser = sub.add_parser(
+        "screenshot",
+        help="download upstream screenshot(s) into .daemonless/screenshots/",
+        description=(
+            "Download one or more upstream images into .daemonless/screenshots/. "
+            "Uses 'file --mime-type' to detect the real format and SHA-256 to skip duplicates."
+        ),
+    )
+    screenshot_parser.add_argument(
+        "urls",
+        metavar="URL",
+        nargs="+",
+        help="URL(s) to download (GitHub blob URLs are auto-converted to raw)",
+    )
+
     # -- baseline --
     baseline_parser = sub.add_parser(
         "baseline",
@@ -381,6 +397,12 @@ def _dispatch_info(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def _dispatch_screenshot(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the screenshot subcommand."""
+    from dbuild import upstream_screenshot
+    return upstream_screenshot.run(args)
+
+
 def _dispatch_baseline(cfg: Config, args: argparse.Namespace) -> int:
     """Run the baseline subcommand."""
     from dbuild import test as test_mod
@@ -410,6 +432,7 @@ _DISPATCHERS: dict[str, callable] = {
     "manifest": _dispatch_manifest,
     "detect": _dispatch_detect,
     "info": _dispatch_info,
+    "screenshot": _dispatch_screenshot,
     "baseline": _dispatch_baseline,
     "ci-run": _dispatch_ci_run,
     "generate": _dispatch_docs,
@@ -417,7 +440,7 @@ _DISPATCHERS: dict[str, callable] = {
 }
 
 # Commands that run without loading project config
-_NO_CONFIG_COMMANDS: set[str] = {"init", "ci-prepare", "ci-test-env", "lint"}
+_NO_CONFIG_COMMANDS: set[str] = {"init", "ci-prepare", "ci-test-env", "lint", "screenshot"}
 
 
 # ── Entry point ───────────────────────────────────────────────────────
@@ -468,6 +491,9 @@ def main(argv: list[str] | None = None) -> None:
             elif args.command == "lint":
                 from dbuild import lint
                 rc = lint.run(args)
+            elif args.command == "screenshot":
+                from dbuild import upstream_screenshot
+                rc = upstream_screenshot.run(args)
             else:
                 rc = 1
         except KeyboardInterrupt:
