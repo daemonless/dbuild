@@ -183,9 +183,14 @@ def push(image_ref: str) -> None:
 
 
 def images(filter_expr: str | None = None) -> list[dict[str, Any]]:
-    """List images, optionally filtered.  Returns parsed JSON."""
+    """List images, optionally filtered.  Returns parsed JSON.
+
+    If filter_expr does not contain '=', it is treated as a reference filter.
+    """
     cmd = ["podman", "images", "--format", "json"]
     if filter_expr:
+        if "=" not in filter_expr:
+            filter_expr = f"reference={filter_expr}"
         cmd += ["--filter", filter_expr]
     result = _run(cmd)
     return json.loads(result.stdout) if result.stdout.strip() else []
@@ -286,6 +291,34 @@ def rm(container_name: str, *, force: bool = True) -> None:
     if force:
         cmd.append("-f")
     cmd.append(container_name)
+    _run(cmd, check=False)
+
+
+def list_containers(filter_expr: str | None = None) -> list[str]:
+    """Return a list of container names, optionally filtered."""
+    cmd = ["podman", "ps", "-a", "--format", "{{.Names}}"]
+    if filter_expr:
+        cmd += ["--filter", filter_expr]
+    result = _run(cmd, quiet=True)
+    return result.stdout.strip().splitlines() if result.stdout.strip() else []
+
+
+def container_exists(name: str) -> bool:
+    """Return True if container *name* exists."""
+    result = _run(
+        ["podman", "container", "exists", name],
+        check=False,
+        quiet=True,
+    )
+    return result.returncode == 0
+
+
+def rmi(image_id: str, *, force: bool = True) -> None:
+    """Remove an image."""
+    cmd = ["podman", "rmi"]
+    if force:
+        cmd.append("-f")
+    cmd.append(image_id)
     _run(cmd, check=False)
 
 

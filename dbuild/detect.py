@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 from typing import Any
@@ -45,7 +44,6 @@ def _build_matrix(cfg: Config, args: argparse.Namespace) -> list[dict[str, Any]]
                 "arch": arch,
                 "args": variant.args,
                 "aliases": variant.aliases,
-                "auto_version": variant.auto_version,
             })
 
     return matrix
@@ -127,11 +125,7 @@ def _list_local_images(cfg: Config) -> tuple[list[dict], list[dict]]:
     from dbuild import podman
 
     try:
-        cmd = [*podman._priv_prefix(), "podman", "images", "--format", "json", cfg.full_image]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode != 0 or not result.stdout.strip():
-            return [], []
-        imgs = json.loads(result.stdout)
+        imgs = podman.images(cfg.full_image)
     except Exception:
         return [], []
 

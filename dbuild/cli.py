@@ -146,6 +146,28 @@ def _make_parser() -> argparse.ArgumentParser:
         description="Create and push multi-architecture manifest lists.",
     )
 
+    # -- prune --
+    prune_parser = sub.add_parser(
+        "prune",
+        help="clean up orphaned CIT containers and build images for this project",
+        description=(
+            "Find and remove leftover CIT containers (Podman), jails (AppJail), "
+            "build-tagged images, and /tmp/dbuild-cit-* files for the current project."
+        ),
+    )
+    prune_parser.add_argument("--variant", **variant_kw)
+    prune_parser.add_argument(
+        "-n", "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="show what would be removed without removing anything",
+    )
+    prune_parser.add_argument(
+        "-y", "--force",
+        action="store_true",
+        help="do not prompt for confirmation",
+    )
+
     # -- detect --
     detect_parser = sub.add_parser(
         "detect",
@@ -424,12 +446,20 @@ def _dispatch_docs(cfg: Config, args: argparse.Namespace) -> int:
     return rc if rc else 0
 
 
+def _dispatch_prune(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the prune subcommand."""
+    from dbuild import prune
+    rc = prune.run(cfg, args)
+    return rc if rc else 0
+
+
 _DISPATCHERS: dict[str, callable] = {
     "build": _dispatch_build,
     "test": _dispatch_test,
     "push": _dispatch_push,
     "sbom": _dispatch_sbom,
     "manifest": _dispatch_manifest,
+    "prune": _dispatch_prune,
     "detect": _dispatch_detect,
     "info": _dispatch_info,
     "screenshot": _dispatch_screenshot,

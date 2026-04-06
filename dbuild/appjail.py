@@ -166,3 +166,23 @@ def jail_stop(jail_name: str) -> None:
 def jail_destroy(jail_name: str) -> None:
     """Force-destroy *jail_name* and all its data (ignores errors)."""
     _run(["appjail", "jail", "destroy", "-fR", jail_name], check=False)
+
+
+def list_jails() -> list[str]:
+    """Return a list of all jail names."""
+    result = _run(["appjail", "jail", "list"], check=False, quiet=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    jails = []
+    for line in result.stdout.strip().splitlines()[1:]:  # Skip header
+        parts = line.split()
+        if parts:
+            jails.append(parts[1])
+    return jails
+
+
+def jail_exists(jail_name: str) -> bool:
+    """Return True if *jail_name* exists."""
+    result = _run(["appjail", "jail", "get", "-I", jail_name, "name"], check=False, quiet=True)
+    return result.returncode == 0

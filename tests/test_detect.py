@@ -86,7 +86,7 @@ class TestBuildMatrix(unittest.TestCase):
         self.assertIn("arch", entry)
         self.assertIn("args", entry)
         self.assertIn("aliases", entry)
-        self.assertIn("auto_version", entry)
+        self.assertNotIn("auto_version", entry)
 
 
 class TestGithubExtras(unittest.TestCase):

@@ -82,13 +82,6 @@ class TestAutoDetectVariants(unittest.TestCase):
             result = _auto_detect_variants(Path(d), pkg_name="myapp")
             self.assertEqual(result[0].pkg_name, "myapp")
 
-    def test_auto_version_propagated(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "Containerfile").touch()
-            result = _auto_detect_variants(Path(d), auto_version=True)
-            self.assertTrue(result[0].auto_version)
-
     def test_j2_excluded(self):
         """Containerfile.j2 should NOT be detected as a variant."""
         import tempfile
@@ -235,19 +228,6 @@ class TestParseVariants(unittest.TestCase):
         result = _parse_variants(data)
         self.assertEqual(result[0].aliases, ["stable", "15"])
 
-    def test_build_auto_version_propagated(self):
-        data = {
-            "build": {
-                "auto_version": True,
-                "variants": [
-                    {"tag": "latest"},
-                    {"tag": "pkg", "auto_version": False},
-                ]
-            }
-        }
-        result = _parse_variants(data)
-        self.assertTrue(result[0].auto_version)
-        self.assertFalse(result[1].auto_version)
 
 
 class TestLoad(unittest.TestCase):

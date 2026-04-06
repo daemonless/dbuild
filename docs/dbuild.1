@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-04-05" "dbuild 1.8.2" "User Commands"
+.TH DBUILD 1 "2026-04-06" "dbuild 1.8.3" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -166,6 +166,23 @@ Create and push multi-architecture manifest lists.
 .TP
 \fB-h\fR, \fB--help\fR
 show this help message and exit
+.RE
+.TP
+\fBprune\fR
+Find and remove leftover CIT containers (Podman), jails (AppJail), build-tagged images, and /tmp/dbuild-cit-* files for the current project.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--variant\fR
+filter to a single variant by tag (e.g. latest, pkg)
+.TP
+\fB-n\fR, \fB--dry-run\fR
+show what would be removed without removing anything
+.TP
+\fB-y\fR, \fB--force\fR
+do not prompt for confirmation
 .RE
 .TP
 \fBpush\fR

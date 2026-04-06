@@ -121,9 +121,6 @@ class Variant:
         "desc": 'Additional tags to push alongside this variant (e.g. `["18-pkg", "pkg", "latest"]`)',
         "display_default": "[]",
     })
-    auto_version: bool = field(default=False, metadata={
-        "desc": "Override the top-level `build.auto_version` for this variant",
-    })
     default: bool = field(default=False, metadata={
         "desc": "Mark as the default variant for `dbuild test` when no `--variant` is given",
     })
@@ -281,7 +278,6 @@ def _detect_image_name(base: Path) -> str:
 def _auto_detect_variants(
     base: Path,
     pkg_name: str | None = None,
-    auto_version: bool = False,
     ignore: list[str] | None = None,
 ) -> list[Variant]:
     """Auto-detect variants from Containerfiles present in *base*.
@@ -295,8 +291,6 @@ def _auto_detect_variants(
         Project directory.
     pkg_name:
         Default pkg_name from ``build.pkg_name`` in config.
-    auto_version:
-        Default auto_version from ``build.auto_version`` in config.
     ignore:
         Additional filenames to skip (merged with ``_IGNORE_SUFFIXES``).
     """
@@ -309,7 +303,6 @@ def _auto_detect_variants(
             containerfile="Containerfile",
             default=True,
             pkg_name=pkg_name,
-            auto_version=auto_version,
         ))
 
     for cf in sorted(base.glob("Containerfile.*")):
@@ -325,7 +318,6 @@ def _auto_detect_variants(
             tag=suffix,
             containerfile=cf.name,
             pkg_name=pkg_name,
-            auto_version=auto_version,
         ))
 
     return variants
@@ -365,7 +357,6 @@ def _global_extra_variants(base: Path, global_data: dict[str, Any]) -> list[Vari
                 containerfile=cf,
                 args=v.get("args", {}),
                 aliases=v.get("aliases", []),
-                auto_version=v.get("auto_version", False),
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),
             )
@@ -594,7 +585,6 @@ def _parse_variants(data: dict[str, Any]) -> list[Variant]:
     """Parse the ``build.variants:`` section of the config file."""
     build_section = data.get("build", {})
     raw_variants = build_section.get("variants", [])
-    build_auto_version = build_section.get("auto_version", False)
     variants: list[Variant] = []
     for v in raw_variants:
         variants.append(
@@ -603,7 +593,6 @@ def _parse_variants(data: dict[str, Any]) -> list[Variant]:
                 containerfile=v.get("containerfile", "Containerfile"),
                 args=v.get("args", {}),
                 aliases=v.get("aliases", []),
-                auto_version=v.get("auto_version", build_auto_version),
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),
             )
@@ -661,14 +650,13 @@ def load(base: Path | None = None) -> Config:
     global_build = global_data.get("build", {})
 
     build_pkg_name = local_build.get("pkg_name")
-    build_auto_version = local_build.get("auto_version", False)
     build_ignore: list[str] = local_build.get("ignore", [])
 
     # Resolve variants: local explicit > auto-detect + global extras
     variants = _parse_variants(local_data)
     if not variants:
         variants = _auto_detect_variants(
-            base, build_pkg_name, build_auto_version, ignore=build_ignore,
+            base, build_pkg_name, ignore=build_ignore,
         )
         if global_data:
             existing_tags = {v.tag for v in variants}
