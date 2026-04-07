@@ -298,6 +298,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
                 "default": v.default,
                 "args": v.args or {},
                 "containerfile": v.containerfile or "Containerfile",
+                "tag_desc": v.tag_desc,
             }
             for v in cfg.variants
         ],
