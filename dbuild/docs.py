@@ -312,6 +312,8 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "docs": meta.docs,
         "deprecated": meta.deprecated,
         "screenshots": _collect_screenshots(Path.cwd()),
+        "cit_mode": cfg.test.mode if cfg.test else "none",
+        "image_class": meta.image_class,
         "env": [],
         "volumes": [],
         "ports": [],

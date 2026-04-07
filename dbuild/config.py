@@ -27,6 +27,8 @@ _IGNORE_SUFFIXES: set[str] = {".j2", ".bak", ".orig", ".swp", ".tmp"}
 _GLOBAL_CONFIG_PATH = Path("/usr/local/etc/daemonless.yaml")
 
 # Valid x-daemonless categories — single source of truth across dbuild.
+VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base"]
+
 VALID_CATEGORIES: list[str] = [
     "Base",
     "Databases",
@@ -189,6 +191,15 @@ class Metadata:
     docs: dict[str, Any] | str = field(default_factory=list, metadata={
         "desc": "Structured env/volumes/ports documentation. Used to generate README reference tables (see docs: sub-keys below).",
         "display_default": "{}",
+    })
+    image_class: str = field(default="service", metadata={
+        "desc": (
+            "Image class controlling README layout. Valid values: "
+            + ", ".join(f"`{c}`" for c in VALID_IMAGE_CLASSES)
+            + ". `service` (default): persistent daemon with compose/CLI/ansible docs. "
+            "`cli`: run-and-exit tool, deployment section replaced with usage example. "
+            "`base`: base image for FROM, no deployment docs."
+        ),
     })
     deprecated: DeprecationInfo | None = field(default=None, metadata={
         "desc": "Mark this image as deprecated. Bare key disables builds; pass a dict with `reason`, `replacement`, `sunset_date`, and/or `migration_guide` for structured messaging.",
@@ -500,6 +511,7 @@ def _parse_metadata(data: dict[str, Any], app_name: str) -> Metadata:
         appjail=_parse_appjail(meta),
         healthcheck=meta.get("healthcheck"),
         docs=meta.get("docs", {}),
+        image_class=meta.get("class", "service"),
         deprecated=_parse_deprecated(meta),
     )
 

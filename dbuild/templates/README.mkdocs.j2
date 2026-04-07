@@ -89,6 +89,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 {% block deployment_tabs %}
 {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
+{%- if image_class == "service" %}
 === ":material-docker: Podman Compose"
 
     ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
@@ -101,24 +102,30 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     {{ appjail_snippet() | indent(4) }}
 
 {% endif %}
+{%- endif %}
 === ":material-console: Podman CLI"
 
     ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
     {{ cli_snippet(port_var) | indent(4) }}
     ```
 
+{%- if image_class == "service" %}
+
 === ":simple-ansible: Ansible"
 
     ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
     {{ ansible_snippet(port_var) | indent(4) }}
     ```
+{%- endif %}
 {% endblock %}
 
 {% block interactive_config %}
+{%- if image_class == "service" %}
 
 ### Interactive Configuration
 
 <div class="placeholder-settings-panel"></div>
+{%- endif %}
 {% endblock %}
 
 {% block implementation_details %}

@@ -100,7 +100,11 @@ services:
 {%- endmacro %}
 
 {%- macro cli_snippet(override_port=None) -%}
+{%- if image_class == "cli" %}
+podman run --rm \
+{%- else %}
 podman run -d --name {{ name }} \
+{%- endif %}
 {%- for p in ports %}
 {%- if loop.first %}
   -p {{ override_port if override_port else port_var }}:{{ p.port }} \
@@ -266,12 +270,15 @@ Source: dbuild templates
 {%- endblock %}
 
 {% block prerequisites -%}
+{%- if image_class == "service" %}
 ## Prerequisites
 
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](https://daemonless.io/guides/quick-start) for host setup instructions.
+{%- endif %}
 {%- endblock %}
 
 {% block deployment -%}
+{%- if image_class in ["service", "cli"] %}
 ## Deployment
 
 {% block deployment_tabs -%}
@@ -299,16 +306,19 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```
 {%- endblock %}
 
-{%- if ports %}
+{%- if ports and cit_mode == "http" %}
 
 Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else port_var }}`
+{%- endif %}
 {%- endif %}
 {%- endblock %}
 
 {%- block interactive_config %}{%- endblock %}
 
 {% block parameters -%}
+{%- if env or volumes or ports %}
 ## Parameters
+{%- endif %}
 
 {%- if env %}
 
