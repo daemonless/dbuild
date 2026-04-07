@@ -238,7 +238,10 @@ Source: dbuild templates
 {%- set tag_str = all_tags | join('` / `') %}
 {%- set base_ver = v.args.get('BASE_VERSION', '') %}
 {%- set is_pkg = 'pkg' in v.containerfile %}
-{%- if base_ver.endswith('-latest') %}
+{%- if v.tag_desc %}
+{%- set src_desc = v.tag_desc %}
+{%- set best_for = "Most users. Matches Linux Docker behavior." if v.default else "Alternative build." %}
+{%- elif base_ver.endswith('-latest') %}
 {%- set src_desc = "**FreeBSD Latest**. Rolling package updates." %}
 {%- set best_for = "Newest FreeBSD packages." %}
 {%- elif is_pkg %}

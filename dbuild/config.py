@@ -127,6 +127,9 @@ class Variant:
     pkg_name: str | None = field(default=None, metadata={
         "desc": "Override the top-level `build.pkg_name` for this variant",
     })
+    tag_desc: str | None = field(default=None, metadata={
+        "desc": "Override the auto-generated tag description in the README version table",
+    })
 
 
 @dataclass
@@ -595,6 +598,7 @@ def _parse_variants(data: dict[str, Any]) -> list[Variant]:
                 aliases=v.get("aliases", []),
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),
+                tag_desc=v.get("tag_desc"),
             )
         )
     return variants

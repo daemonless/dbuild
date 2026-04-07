@@ -87,6 +87,11 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     images = _collect_build_images(full_image, variant)
     tmp_files = _collect_tmp_files()
 
+    # Exclude build images that correspond to current config variants
+    current_tags = {f"{full_image}:build-{v.tag}" for v in cfg.variants}
+    if not variant:
+        images = [ref for ref in images if ref not in current_tags]
+
     if not any([containers, jails, images, tmp_files]):
         log.info(f"Nothing to prune for '{image_name}'")
         return 0
