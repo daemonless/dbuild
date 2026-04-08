@@ -100,9 +100,9 @@ services:
 {%- endmacro %}
 
 {%- macro cli_snippet(override_port=None) -%}
-{%- if image_class == "cli" %}
+{%- if image_class == "cli" -%}
 podman run --rm \
-{%- else %}
+{%- else -%}
 podman run -d --name {{ name }} \
 {%- endif %}
 {%- for p in ports %}
@@ -269,7 +269,7 @@ Source: dbuild templates
 {%- endif %}
 {%- endblock %}
 
-{% block prerequisites -%}
+{%- block prerequisites -%}
 {%- if image_class == "service" %}
 ## Prerequisites
 
