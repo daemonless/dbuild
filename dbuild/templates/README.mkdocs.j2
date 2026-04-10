@@ -71,6 +71,7 @@ description: "{{ description }} Built natively for FreeBSD with s6 supervision, 
 {% endblock %}
 
 {% block prerequisites -%}
+
 !!! failure "Root Privileges Required"
     **Podman on FreeBSD currently requires root.** All commands must be run as root (or via `doas`/`sudo`).
 {%- if mlock %}
