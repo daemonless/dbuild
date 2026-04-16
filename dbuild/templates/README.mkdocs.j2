@@ -74,16 +74,6 @@ description: "{{ description }} Built natively for FreeBSD with s6 supervision, 
 
 !!! failure "Root Privileges Required"
     **Podman on FreeBSD currently requires root.** All commands must be run as root (or via `doas`/`sudo`).
-{%- if mlock %}
-
-!!! warning ".NET Memory Locking (mlock)"
-    This application requires `--annotation 'org.freebsd.jail.allow.mlock=true'` (Requires [patched ocijail](/guides/ocijail-patch/)).
-{%- endif -%}
-{%- if sysvipc %}
-
-!!! warning "System V IPC Required"
-    This application requires `--annotation 'org.freebsd.jail.allow.sysvipc=true'` for shared memory access (Requires [patched ocijail](/guides/ocijail-patch/)).
-{%- endif %}
 
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](../guides/quick-start.md) for host setup instructions.
 {% endblock %}
@@ -135,6 +125,12 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     - **Architectures:** {{ architectures | default(['amd64']) | join(', ') }}
     - **User:** `{{ user }}` (UID/GID set via [PUID/PGID](../guides/permissions.md)). Defaults to `1000:1000`.
     - **Base:** Built on `@REGISTRY@/base` (FreeBSD 15.0).
+{%- if mlock %}
+    - **mlock:** Requires `--annotation 'org.freebsd.jail.allow.mlock=true'` ([ocijail 0.5.0+](/guides/ocijail-patch/))
+{%- endif %}
+{%- if sysvipc %}
+    - **sysvipc:** Requires `--annotation 'org.freebsd.jail.allow.sysvipc=true'` ([ocijail 0.5.0+](/guides/ocijail-patch/))
+{%- endif %}
 {% endblock %}
 
 {% block links %}
