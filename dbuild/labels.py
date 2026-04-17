@@ -39,8 +39,9 @@ def build_labels(
     except FileNotFoundError:
         pass
 
-    if version:
-        labels["org.opencontainers.image.version"] = version
+    # Always set version label — even empty — to override any value inherited
+    # from the base image (e.g. "15.0-RELEASE" from daemonless/base).
+    labels["org.opencontainers.image.version"] = version or ""
 
     if variant_tag:
         labels["io.daemonless.variant"] = variant_tag
