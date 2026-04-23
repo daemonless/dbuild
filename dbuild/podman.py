@@ -103,6 +103,7 @@ def build(
         "-f", containerfile,
         "-t", tag,
         f"--network={network}",
+        "--no-hosts",
     ]
     if no_cache:
         cmd.append("--no-cache")

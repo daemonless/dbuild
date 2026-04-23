@@ -28,12 +28,12 @@ class TestBuildLabels(unittest.TestCase):
         self.assertEqual(labels["org.opencontainers.image.version"], "1.2.3")
 
     @patch("dbuild.labels.subprocess.run")
-    def test_version_omitted_when_none(self, mock_run):
+    def test_version_empty_when_none(self, mock_run):
         mock_run.return_value = type("R", (), {
             "returncode": 1, "stdout": "", "stderr": ""
         })()
         labels = build_labels(version=None)
-        self.assertNotIn("org.opencontainers.image.version", labels)
+        self.assertEqual(labels["org.opencontainers.image.version"], "")
 
     @patch("dbuild.labels.subprocess.run")
     def test_variant_tag_included(self, mock_run):
