@@ -269,26 +269,29 @@ Source: dbuild templates
 {%- endif %}
 {%- endblock %}
 
-{% block prerequisites -%}
+{%- block prerequisites -%}
 {%- if image_class == "service" %}
+
 ## Prerequisites
 
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](https://daemonless.io/guides/quick-start) for host setup instructions.
 {%- endif %}
 {%- endblock %}
-
-{% block deployment -%}
+{%- block deployment -%}
 {%- if image_class in ["service", "cli"] %}
+
 ## Deployment
 
-{% block deployment_tabs -%}
+{%- block deployment_tabs -%}
 {%- if image_class == "service" %}
+
 ### Podman Compose
 
 ```yaml
 {{ compose_snippet() }}
 ```
-{% if appjail_enabled %}
+{%- if appjail_enabled %}
+
 ### AppJail Director
 
 {{ appjail_snippet() }}
@@ -320,8 +323,9 @@ Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else po
 
 {%- block interactive_config %}{%- endblock %}
 
-{% block parameters -%}
+{%- block parameters -%}
 {%- if env or volumes or ports %}
+
 ## Parameters
 {%- endif %}
 
@@ -367,14 +371,15 @@ Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else po
 {%- endif %}
 {%- endblock %}
 
-{% block implementation_details -%}
+{%- block implementation_details %}
+
 **Architectures:** {{ architectures | default(['amd64']) | join(', ') }}
 **User:** `{{ user }}` (UID/GID via PUID/PGID, defaults to 1000:1000)
 **Base:** FreeBSD 15.0
 {%- endblock %}
+{%- block community %}
+{%- if community_url %}
 
-{% block community -%}
-{%- if community_url -%}
 ---
 
 Need help? Join our [{{ community_name }}]({{ community_url }}) community.
