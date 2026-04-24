@@ -149,6 +149,23 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                         f" Valid: {', '.join(sorted(valid_archs))}"
                     )
 
+        for v in config.get("build", {}).get("variants", []):
+            tag = v.get("tag", "<unknown>")
+            pkg_name = v.get("pkg_name")
+            arg_pkg_name = v.get("args", {}).get("PKG_NAME")
+            if pkg_name and arg_pkg_name:
+                if pkg_name != arg_pkg_name:
+                    warnings.append(
+                        f"Variant '{tag}': pkg_name={pkg_name!r} differs from"
+                        f" args.PKG_NAME={arg_pkg_name!r} —"
+                        " remove args.PKG_NAME, it is now injected automatically"
+                    )
+                else:
+                    warnings.append(
+                        f"Variant '{tag}': args.PKG_NAME={arg_pkg_name!r} is redundant"
+                        " — pkg_name is now injected automatically as PKG_NAME"
+                    )
+
     if compose_path.exists() and data:
         services = data.get("services", {})
         for svc_name, svc in services.items():

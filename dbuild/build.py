@@ -78,6 +78,9 @@ def _build_variant(
     # Merge any additional variant-specific build args.
     for key, val in variant.args.items():
         build_args.setdefault(key, val)
+    # Auto-inject pkg_name as PKG_NAME if set and not already provided.
+    if variant.pkg_name:
+        build_args.setdefault("PKG_NAME", variant.pkg_name)
 
     # ---- secrets ----
     secrets: dict[str, str] = {}
