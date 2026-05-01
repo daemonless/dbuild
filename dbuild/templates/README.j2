@@ -46,9 +46,9 @@ services:
     ports:
 {%- for p in ports %}
 {%- if loop.first %}
-      - {{ override_port if override_port else port_var }}:{{ p.port }}
+      - {{ override_port if override_port else port_var }}:{{ p.target }}
 {%- else %}
-      - {{ p.port }}:{{ p.port }}
+      - {{ p.port }}:{{ p.target }}
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -107,9 +107,9 @@ podman run -d --name {{ name }} \
 {%- endif %}
 {%- for p in ports %}
 {%- if loop.first %}
-  -p {{ override_port if override_port else port_var }}:{{ p.port }} \
+  -p {{ override_port if override_port else port_var }}:{{ p.target }} \
 {%- else %}
-  -p {{ p.port }}:{{ p.port }} \
+  -p {{ p.port }}:{{ p.target }} \
 {%- endif %}
 {%- endfor %}
 {%- for opt in jail_allow %}
@@ -144,9 +144,9 @@ podman run -d --name {{ name }} \
     ports:
 {%- for p in ports %}
 {%- if loop.first %}
-      - "{{ override_port if override_port else port_var }}:{{ p.port }}"
+      - "{{ override_port if override_port else port_var }}:{{ p.target }}"
 {%- else %}
-      - "{{ p.port }}:{{ p.port }}"
+      - "{{ p.port }}:{{ p.target }}"
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -358,7 +358,7 @@ Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else po
 | Port | Protocol | Description |
 |------|----------|-------------|
 {%- for p in ports %}
-| `{{ p.port }}` | {{ p.protocol|upper }} | {{ p.desc }} |
+| `{{ p.target }}` | {{ p.protocol|upper }} | {{ p.desc }} |
 {%- endfor %}
 {%- endif %}
 {%- endblock %}
