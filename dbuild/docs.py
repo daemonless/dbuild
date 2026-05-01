@@ -376,13 +376,15 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     port_docs = {str(k): v for k, v in docs.get("ports", {}).items()}
     for p in cfg.ports:
         pub = p["published"]
+        tgt = p["target"]
         proto = p["protocol"]
 
         context["ports"].append({
             "port": pub,
             "protocol": proto,
-            "desc": port_docs.get(str(pub), ""),
-            "name": "web"
+            "desc": port_docs.get(str(tgt), ""),
+            "name": "web",
+            "target": tgt
         })
 
     return context
