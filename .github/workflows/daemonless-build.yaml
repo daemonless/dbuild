@@ -26,7 +26,7 @@ on:
 env:
   REGISTRY: ghcr.io
   DBUILD_REF: v1.8.5
-  COMPOSE_PACKAGES: py311-podman-compose
+  BUILD_TOOLS_REF: freebsd-15.0-20260502
 
 jobs:
   # Detect which variants exist and build dynamic matrix
@@ -117,16 +117,16 @@ jobs:
             mdconfig -a -t vnode -f /swapfile -u 0
             swapon /dev/md0
 
-            # Use latest repo for CI tools (quarterly often has sync issues)
+            # Install build tools from pinned bundle
+            fetch -qo /tmp/build-tools.tar.gz \
+              "https://github.com/daemonless/build-tools/releases/download/${{ env.BUILD_TOOLS_REF }}/${{ env.BUILD_TOOLS_REF }}.tar.gz"
+            mkdir -p /tmp/build-tools
+            tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
-            echo 'FreeBSD: { url: "http://pkg.FreeBSD.org/${ABI}/latest" }' > /etc/pkg/FreeBSD.conf
-            pkg update -f
-            pkg install -y podman ${{ env.COMPOSE_PACKAGES }} jq skopeo buildah trivy python3 py311-pyyaml appjail
+            printf 'local: { url: "file:///tmp/build-tools", enabled: yes }\nFreeBSD: { enabled: no }\n' > /etc/pkg/FreeBSD.conf
+            pkg repo /tmp/build-tools
+            pkg install -y podman sysutils/podman-compose jq skopeo buildah trivy python3 devel/py-pyyaml appjail ocijail
             mkdir -p /var/log/appjail/jails /usr/local/appjail/jails
-
-            # Install patched ocijail for .NET apps (mlock support)
-            fetch -qo /tmp/ocijail.pkg "https://github.com/daemonless/freebsd-ports/releases/download/v0.4.0-patched/ocijail-0.4.0_3-${{ matrix.arch }}.pkg"
-            pkg install -fy /tmp/ocijail.pkg
 
             rm -rf /var/db/containers /var/lib/containers 2>/dev/null || true
             kldload pf
@@ -347,14 +347,15 @@ jobs:
           debug-on-error: true
           prepare: |
             set -e
+            # Install build tools from pinned bundle
+            fetch -qo /tmp/build-tools.tar.gz \
+              "https://github.com/daemonless/build-tools/releases/download/${{ env.BUILD_TOOLS_REF }}/${{ env.BUILD_TOOLS_REF }}.tar.gz"
+            mkdir -p /tmp/build-tools
+            tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
-            echo 'FreeBSD: { url: "http://pkg.FreeBSD.org/${ABI}/latest" }' > /etc/pkg/FreeBSD.conf
-            pkg update -f
-            pkg install -y podman ${{ env.COMPOSE_PACKAGES }} jq python3 py311-pyyaml appjail
-
-            # Install patched ocijail for .NET apps (mlock support)
-            fetch -qo /tmp/ocijail.pkg "https://github.com/daemonless/freebsd-ports/releases/download/v0.4.0-patched/ocijail-0.4.0_3-amd64.pkg"
-            pkg install -fy /tmp/ocijail.pkg
+            printf 'local: { url: "file:///tmp/build-tools", enabled: yes }\nFreeBSD: { enabled: no }\n' > /etc/pkg/FreeBSD.conf
+            pkg repo /tmp/build-tools
+            pkg install -y podman sysutils/podman-compose jq python3 devel/py-pyyaml appjail ocijail
 
             rm -rf /var/db/containers /var/lib/containers 2>/dev/null || true
             kldload pf
