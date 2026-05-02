@@ -164,6 +164,7 @@ jobs:
             # Install screenshot deps only if CIT mode requires it
             if grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; then
               pkg clean -ay && rm -rf /var/cache/pkg/*
+              printf 'FreeBSD: { url: "http://pkg.FreeBSD.org/${ABI}/latest" }\n' > /etc/pkg/FreeBSD.conf
               pkg install -y chromium py311-selenium py311-scikit-image
             fi
 
