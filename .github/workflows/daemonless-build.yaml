@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: ''
+      registry:
+        description: 'Container registry prefix (e.g. ghcr.io/myorg). Defaults to ghcr.io/daemonless'
+        required: false
+        type: string
+        default: 'ghcr.io/daemonless'
 
 env:
   REGISTRY: ghcr.io
@@ -98,7 +103,7 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DBUILD_REGISTRY: ghcr.io/daemonless
+          DBUILD_REGISTRY: ${{ inputs.registry }}
         with:
           release: "15.0"
           vnc-password: ${{ secrets.VNC_PASSWORD }}
