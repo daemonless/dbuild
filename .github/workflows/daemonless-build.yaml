@@ -31,7 +31,7 @@ on:
 env:
   REGISTRY: ghcr.io
   DBUILD_REF: v1.8.5
-  BUILD_TOOLS_REF: freebsd-15.0-20260502
+  BUILD_TOOLS_REF: freebsd-15.0-20260511
 
 jobs:
   # Detect which variants exist and build dynamic matrix
