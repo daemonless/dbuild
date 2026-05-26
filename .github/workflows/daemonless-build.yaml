@@ -27,11 +27,15 @@ on:
         required: false
         type: string
         default: 'ghcr.io/daemonless'
+      build_tools_ref:
+        description: 'build-tools release tag to use (default: latest release)'
+        required: false
+        type: string
+        default: ''
 
 env:
   REGISTRY: ghcr.io
   DBUILD_REF: v1.8.5
-  BUILD_TOOLS_REF: freebsd-15.0-20260511
 
 jobs:
   # Detect which variants exist and build dynamic matrix
@@ -42,9 +46,22 @@ jobs:
       compose_only: ${{ steps.detect.outputs.compose_only }}
       architectures: ${{ steps.detect.outputs.architectures }}
       manifest_tags: ${{ steps.detect.outputs.manifest_tags }}
+      build_tools_ref: ${{ steps.resolve-build-tools.outputs.ref }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Resolve build-tools ref
+        id: resolve-build-tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.build_tools_ref }}" ]; then
+            echo "ref=${{ inputs.build_tools_ref }}" >> $GITHUB_OUTPUT
+          else
+            REF=$(gh api repos/daemonless/build-tools/releases/latest --jq '.tag_name')
+            echo "ref=$REF" >> $GITHUB_OUTPUT
+          fi
 
       - name: Install dependencies
         run: pip install PyYAML
@@ -124,7 +141,7 @@ jobs:
 
             # Install build tools from pinned bundle
             fetch -qo /tmp/build-tools.tar.gz \
-              "https://github.com/daemonless/build-tools/releases/download/${{ env.BUILD_TOOLS_REF }}/${{ env.BUILD_TOOLS_REF }}.tar.gz"
+              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}.tar.gz"
             mkdir -p /tmp/build-tools
             tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
@@ -168,9 +185,9 @@ jobs:
 
             # Install screenshot deps only if CIT mode requires it
             if grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; then
-              SS_REF=$(echo "${{ env.BUILD_TOOLS_REF }}" | sed 's/\(freebsd-[0-9.]*-\)/\1screenshot-/')
+              SS_REF=$(echo "${{ needs.detect.outputs.build_tools_ref }}" | sed 's/\(freebsd-[0-9.]*-\)/\1screenshot-/')
               fetch -qo /tmp/build-tools-screenshot.tar.gz \
-                "https://github.com/daemonless/build-tools/releases/download/${{ env.BUILD_TOOLS_REF }}/${SS_REF}.tar.gz"
+                "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${SS_REF}.tar.gz"
               tar -xzf /tmp/build-tools-screenshot.tar.gz -C /tmp/build-tools
               pkg repo /tmp/build-tools
               pkg install -y chromium py311-selenium py311-scikit-image
@@ -358,7 +375,7 @@ jobs:
             set -e
             # Install build tools from pinned bundle
             fetch -qo /tmp/build-tools.tar.gz \
-              "https://github.com/daemonless/build-tools/releases/download/${{ env.BUILD_TOOLS_REF }}/${{ env.BUILD_TOOLS_REF }}.tar.gz"
+              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}.tar.gz"
             mkdir -p /tmp/build-tools
             tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
