@@ -36,9 +36,12 @@ from dbuild.container_backend import AppJailBackend, ContainerBackend, PodmanBac
 _cleanup_targets: list[tuple[str | None, ContainerBackend | None, str | None]] = []
 """Stack of (compose_file, backend, cname) to clean up on exit."""
 
+_volume_cleanup: list[str] = []
+"""Named volumes to remove on exit (used by the --puid test)."""
+
 
 def _emergency_cleanup(*_args) -> None:
-    """Remove all registered containers/stacks, then exit."""
+    """Remove all registered containers/stacks/volumes, then exit."""
     for compose_file, backend, cname in _cleanup_targets:
         try:
             if compose_file:
@@ -48,6 +51,10 @@ def _emergency_cleanup(*_args) -> None:
         except Exception:
             pass
     _cleanup_targets.clear()
+    for vol in _volume_cleanup:
+        with contextlib.suppress(Exception):
+            podman.volume_rm(vol)
+    _volume_cleanup.clear()
 
 
 # Register for SIGTERM (sent by TaskStop / kill) and normal exit
@@ -427,6 +434,108 @@ def _write_json_result(
 
 # ── Main test orchestration ──────────────────────────────────────────
 
+def _dump_logs(
+    compose_mode: bool,
+    compose_file: Path | None,
+    backend: ContainerBackend,
+    cname: str,
+) -> None:
+    """Print the last 10 lines of container/compose logs."""
+    if compose_mode:
+        assert compose_file is not None
+        output = podman.compose_logs(str(compose_file))
+    else:
+        output = backend.logs(cname)
+    for line in output.splitlines()[-10:]:
+        log.info(f"  {line}")
+
+
+def _functional_checks(
+    *,
+    backend: ContainerBackend,
+    cname: str,
+    mode: str,
+    port: int | None,
+    health: str | None,
+    https: bool,
+    ready_patterns: str,
+    test: AppTestConfig,
+    variant: Variant,
+    baseline: Path | None,
+    results: dict[str, str],
+    compose_mode: bool,
+    compose_file: Path | None,
+) -> int:
+    """Run shell/port/health/screenshot against an already-started container.
+
+    Does not manage container lifecycle.  Returns 0 on success, 1 on failure.
+    """
+    # === SHELL TEST ===
+    if not compose_mode:
+        if not _test_shell(cname, backend=backend):
+            results["shell"] = "fail"
+            return 1
+        results["shell"] = "pass"
+        if mode == "shell":
+            log.success(f":{variant.tag} passed CIT (shell)")
+            return 0
+
+    # Resolve IP
+    if compose_mode:
+        ip = "127.0.0.1"
+    else:
+        ip = backend.get_ip(cname)
+        if not ip:
+            log.error("Could not get container IP")
+            return 1
+        log.info(f"Container IP: {ip}")
+        if mode in ("health", "screenshot"):
+            _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
+
+    # === PORT TEST ===
+    assert port is not None
+    if not _test_port(ip, port, test.wait):
+        results["port"] = "fail"
+        _dump_logs(compose_mode, compose_file, backend, cname)
+        return 1
+    results["port"] = "pass"
+    if mode == "port":
+        log.success(f":{variant.tag} passed CIT (port)")
+        return 0
+
+    # === HEALTH TEST ===
+    assert health is not None
+    if not _test_health(ip, port, health, test.wait, https=https):
+        results["health"] = "fail"
+        _dump_logs(compose_mode, compose_file, backend, cname)
+        return 1
+    results["health"] = "pass"
+    if mode == "health":
+        log.success(f":{variant.tag} passed CIT (health)")
+        return 0
+
+    # === SCREENSHOT TEST ===
+    screenshot_save = f"/tmp/cit-screenshot-{variant.tag}.png"
+    passed, msg = _test_screenshot(
+        ip,
+        port,
+        https=https,
+        screenshot_path=test.screenshot_path,
+        screenshot_wait=test.screenshot_wait or 0,
+        baseline=baseline,
+        save_to=screenshot_save,
+        ssim_threshold=test.ssim_threshold,
+    )
+    if not passed:
+        results["screenshot"] = "fail"
+        log.error(msg)
+        return 1
+    results["screenshot"] = "pass"
+    results["verify"] = "pass"
+    log.success(f":{variant.tag} passed CIT (screenshot)")
+    return 0
+
+
 def _test_variant(
     cfg: Config,
     variant: Variant,
@@ -434,9 +543,16 @@ def _test_variant(
     *,
     json_output: str | None = None,
     force_backend: str = "auto",
+    puid_enabled: bool = False,
     out: dict | None = None,
 ) -> int:
-    """Run CIT against one variant.  Returns 0 on success, 1 on failure."""
+    """Run CIT against one variant.  Returns 0 on success, 1 on failure.
+
+    When *puid_enabled* (podman, non-compose only), the CIT container is
+    started on a ``/config`` volume at PUID/PGID 1000 and doubles as the
+    ownership "deploy 1"; after the functional checks pass it is redeployed
+    once at 1234:5678 to verify the re-chown.
+    """
     build_ref = f"{cfg.full_image}:build-{variant.tag}"
     repo_dir = Path.cwd()
 
@@ -511,6 +627,8 @@ def _test_variant(
         "health": "skip",
         "screenshot": "skip",
         "verify": "skip",
+        "ownership": "skip",
+        "re-chown": "skip",
     }
     rc = 1  # assume failure; set to 0 on success
 
@@ -525,7 +643,20 @@ def _test_variant(
     else:  # auto
         backend = AppJailBackend() if (cfg.metadata.appjail and AppJailBackend.available()) else PodmanBackend()
 
+    # PUID check only works on the podman backend, non-compose (needs env/volume).
+    puid_run = puid_enabled and not compose_mode and isinstance(backend, PodmanBackend)
+    if puid_enabled and not puid_run:
+        log.info("Ownership check skipped (needs podman backend, non-compose)")
+
     cname = f"cit-{os.getpid()}-{cfg.image}"
+    cname2 = f"{cname}-rechown"
+
+    # When the ownership check runs, the CIT container is started on a
+    # persistent /config volume at PUID/PGID 1000 (= ownership deploy 1).
+    init_uid, init_gid = _PUID_INITIAL
+    volume = f"cit-puid-{os.getpid()}-{cfg.image}-{variant.tag}" if puid_run else None
+    start_env = {"PUID": str(init_uid), "PGID": str(init_gid)} if puid_run else None
+    start_vols = [f"{volume}:/config"] if puid_run else None
 
     # -- Register for cleanup (survives SIGTERM) --
     cleanup_entry: tuple[str | None, ContainerBackend | None, str | None] = (
@@ -534,101 +665,41 @@ def _test_variant(
         None if compose_mode else cname,
     )
     _cleanup_targets.append(cleanup_entry)
+    if puid_run:
+        _cleanup_targets.append((None, backend, cname2))
+        assert volume is not None
+        _volume_cleanup.append(volume)
 
     # -- Start container / compose stack --
     try:
         if compose_mode:
             assert compose_file is not None
             podman.compose_up(str(compose_file))
-            ip = "127.0.0.1"
         else:
-            backend.start(cname, build_ref, annotations=annotations)
-            ip = ""  # resolved after shell test
+            backend.start(
+                cname, build_ref, annotations=annotations,
+                env=start_env, volumes=start_vols,
+            )
 
-        # === SHELL TEST ===
-        if not compose_mode:
-            if not _test_shell(cname, backend=backend):
-                results["shell"] = "fail"
-                return 1
-            results["shell"] = "pass"
-
-            if mode == "shell":
-                log.success(f":{variant.tag} passed CIT (shell)")
-                rc = 0
-                return 0
-
-        # Get IP
-        if not compose_mode:
-            ip = backend.get_ip(cname)
-            if not ip:
-                log.error("Could not get container IP")
-                return 1
-            log.info(f"Container IP: {ip}")
-
-        # Wait for ready signal (health/screenshot only — port test has its own poll)
-        if not compose_mode and mode in ("health", "screenshot"):
-            _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
-
-        # === PORT TEST ===
-        assert port is not None
-        if not _test_port(ip, port, test.wait):
-            results["port"] = "fail"
-            if compose_mode:
-                assert compose_file is not None
-                output = podman.compose_logs(str(compose_file))
-            else:
-                output = backend.logs(cname)
-            for line in output.splitlines()[-10:]:
-                log.info(f"  {line}")
-            return 1
-        results["port"] = "pass"
-
-        if mode == "port":
-            log.success(f":{variant.tag} passed CIT (port)")
-            rc = 0
-            return 0
-
-        # === HEALTH TEST ===
-        assert health is not None
-        if not _test_health(ip, port, health, test.wait, https=https):
-            results["health"] = "fail"
-            if compose_mode:
-                assert compose_file is not None
-                output = podman.compose_logs(str(compose_file))
-            else:
-                output = backend.logs(cname)
-            for line in output.splitlines()[-10:]:
-                log.info(f"  {line}")
-            return 1
-        results["health"] = "pass"
-
-        if mode == "health":
-            log.success(f":{variant.tag} passed CIT (health)")
-            rc = 0
-            return 0
-
-        # === SCREENSHOT TEST ===
-        screenshot_save = f"/tmp/cit-screenshot-{variant.tag}.png"
-        passed, msg = _test_screenshot(
-            ip,
-            port,
-            https=https,
-            screenshot_path=test.screenshot_path,
-            screenshot_wait=test.screenshot_wait or 0,
-            baseline=baseline,
-            save_to=screenshot_save,
-            ssim_threshold=test.ssim_threshold,
+        # -- Functional checks (shell/port/health/screenshot) --
+        rc = _functional_checks(
+            backend=backend, cname=cname, mode=mode, port=port, health=health,
+            https=https, ready_patterns=ready_patterns, test=test,
+            variant=variant, baseline=baseline, results=results,
+            compose_mode=compose_mode, compose_file=compose_file,
         )
-        if not passed:
-            results["screenshot"] = "fail"
-            log.error(msg)
-            return 1
-        results["screenshot"] = "pass"
-        results["verify"] = "pass"
+        if rc != 0:
+            return rc
 
-        log.success(f":{variant.tag} passed CIT (screenshot)")
-        rc = 0
-        return 0
+        # -- Ownership check (deploy 1 = this container, then re-chown) --
+        if puid_run:
+            assert volume is not None
+            rc = _puid_phase(
+                backend, cname, cname2, build_ref,
+                volume=volume, annotations=annotations,
+                wait=test.wait, results=results,
+            )
+        return rc
 
     finally:
         # -- Write JSON result if requested --
@@ -641,10 +712,17 @@ def _test_variant(
             podman.compose_down(str(compose_file))
         else:
             backend.stop(cname)
+        if puid_run:
+            backend.stop(cname2)
+            assert volume is not None
+            podman.volume_rm(volume)
+            if volume in _volume_cleanup:
+                _volume_cleanup.remove(volume)
 
         # Deregister from emergency cleanup
-        if cleanup_entry in _cleanup_targets:
-            _cleanup_targets.remove(cleanup_entry)
+        for entry in (cleanup_entry, (None, backend, cname2)):
+            if entry in _cleanup_targets:
+                _cleanup_targets.remove(entry)
 
 
 # ── Screenshot entry point ────────────────────────────────────────────
@@ -840,6 +918,120 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             _cleanup_targets.remove(cleanup_entry)
 
 
+# ── PUID/PGID remap test ──────────────────────────────────────────────
+
+#: Logged by base/root/init once cont-init.d (incl. the usermod chown) is done.
+_PUID_READY = r"\[init\] Initialization complete"
+
+#: Deploy 1 uses the baked-in defaults; deploy 2 uses values that can't
+#: coincide with them, so a pass proves the remap actually happened.
+_PUID_INITIAL = (1000, 1000)
+_PUID_CHANGED = (1234, 5678)
+
+
+def _puid_assert(
+    backend: ContainerBackend, cname: str, want_uid: int, want_gid: int,
+) -> tuple[bool, str]:
+    """Verify the ``bsd`` user is remapped and /config is fully owned by it."""
+    uid = backend.exec_in(cname, ["id", "-u", "bsd"]).stdout.strip()
+    gid = backend.exec_in(cname, ["id", "-g", "bsd"]).stdout.strip()
+    if uid != str(want_uid) or gid != str(want_gid):
+        return False, f"id bsd = {uid}:{gid}, expected {want_uid}:{want_gid}"
+
+    # Any path under /config not owned by want_uid:want_gid is a failure.
+    res = backend.exec_in(cname, [
+        "find", "/config",
+        "(", "!", "-uid", str(want_uid), "-o", "!", "-gid", str(want_gid), ")",
+        "-print",
+    ])
+    offenders = res.stdout.strip()
+    if offenders:
+        listed = "\n".join(f"    {p}" for p in offenders.splitlines()[:20])
+        return False, f"paths under /config not owned by {want_uid}:{want_gid}:\n{listed}"
+    return True, f"bsd={want_uid}:{want_gid}, /config fully owned"
+
+
+def _puid_start_and_wait(
+    backend: ContainerBackend,
+    cname: str,
+    build_ref: str,
+    *,
+    env: dict[str, str],
+    volumes: list[str],
+    annotations: dict[str, str],
+    wait: int,
+) -> bool:
+    """Start a container and wait for cont-init to finish."""
+    backend.start(cname, build_ref, annotations=annotations, env=env, volumes=volumes)
+    if not _test_shell(cname, backend=backend):
+        return False
+    return _wait_for_ready(cname, _PUID_READY, wait, backend=backend)
+
+
+def _puid_phase(
+    backend: ContainerBackend,
+    cname1: str,
+    cname2: str,
+    build_ref: str,
+    *,
+    volume: str,
+    annotations: dict[str, str],
+    wait: int,
+    results: dict[str, str],
+) -> int:
+    """Ownership check, integrated into the CIT flow.
+
+    *cname1* is the already-running CIT container, started on *volume* at
+    PUID/PGID 1000 — it doubles as ownership "deploy 1".  This asserts its
+    ownership, then redeploys (*cname2*) on the same volume at 1234:5678 to
+    verify the re-chown.  Returns 0 on success, 1 on failure.
+    """
+    init_uid, init_gid = _PUID_INITIAL
+    new_uid, new_gid = _PUID_CHANGED
+
+    # Make sure cont-init (incl. the usermod chown) has finished before
+    # asserting — shell-mode functional checks don't wait for it.
+    _wait_for_ready(cname1, _PUID_READY, wait, backend=backend)
+
+    # ── Deploy 1: assert ownership on the running CIT container ──
+    ok, msg = _puid_assert(backend, cname1, init_uid, init_gid)
+    if not ok:
+        results["ownership"] = "fail"
+        log.error(f"ownership (PUID={init_uid}): {msg}")
+        return 1
+    results["ownership"] = "pass"
+    log.success(f"ownership: {msg}")
+
+    # Drop a marker owned by the initial uid/gid so the re-chown has
+    # concrete pre-existing data to act on.
+    marker = "/config/.cit-puid-marker"
+    backend.exec_in(cname1, [
+        "sh", "-c", f"touch {marker} && chown {init_uid}:{init_gid} {marker}",
+    ])
+    backend.stop(cname1)  # named volume persists
+
+    # ── Deploy 2: redeploy with changed ids on the SAME volume ──
+    log.info(f"Re-chown: redeploy PUID={new_uid} PGID={new_gid} (same volume)")
+    if not _puid_start_and_wait(
+        backend, cname2, build_ref,
+        env={"PUID": str(new_uid), "PGID": str(new_gid)},
+        volumes=[f"{volume}:/config"],
+        annotations=annotations, wait=wait,
+    ):
+        results["re-chown"] = "fail"
+        log.error("re-chown: redeploy failed to start")
+        return 1
+
+    ok, msg = _puid_assert(backend, cname2, new_uid, new_gid)
+    if not ok:
+        results["re-chown"] = "fail"
+        log.error(f"re-chown: {msg}")
+        return 1
+    results["re-chown"] = "pass"
+    log.success(f"re-chown: {msg}")
+    return 0
+
+
 # ── Public entry point ────────────────────────────────────────────────
 
 def run(cfg: Config, args: argparse.Namespace) -> int:
@@ -884,6 +1076,13 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     else:
         backends = [backend]
 
+    # PUID/PGID ownership check — folded into each variant's CIT run.
+    # `--puid=true/false` overrides the per-image `cit: puid:` config.
+    puid_override = getattr(args, "puid", None)
+    puid_enabled = cfg.test.puid if puid_override is None else puid_override
+    if not puid_enabled:
+        log.info("Ownership (PUID/PGID) check disabled (--puid=false or cit: puid: false)")
+
     worst_rc = 0
     # (backend, tag, mode, passed)
     results_table: list[tuple[str, str, str, bool]] = []
@@ -899,6 +1098,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
                 cfg, variant, cfg.test,
                 json_output=json_output,
                 force_backend=force_backend,
+                puid_enabled=puid_enabled,
                 out=out,
             )
             if rc != 0 and worst_rc == 0:

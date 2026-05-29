@@ -101,6 +101,11 @@ class AppTestConfig:
     compose: bool = field(default=False, metadata={
         "desc": "Start the service via `compose.yaml` instead of `podman run`",
     })
+    puid: bool = field(default=True, metadata={
+        "desc": "Run the PUID/PGID re-chown check (two deploys on a persistent "
+                "volume) during `dbuild test`. Set `false` to opt out for images "
+                "that don't follow the bsd-owned `/config` convention.",
+    })
     annotations: list[str] = field(default_factory=list)
 
 
@@ -531,6 +536,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
     ssim_threshold = cit.get("ssim_threshold")
     https = cit.get("https", False)
     compose = cit.get("compose", False)
+    puid = cit.get("puid", True)
     annotations = []
 
     # 2. Merge annotations from cit: section
@@ -592,6 +598,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
         ssim_threshold=ssim_threshold,
         https=https,
         compose=compose,
+        puid=puid,
         annotations=annotations,
     )
 

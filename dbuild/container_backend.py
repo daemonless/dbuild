@@ -27,8 +27,21 @@ class ContainerBackend(ABC):
         """Return True if the required system tool is installed."""
 
     @abstractmethod
-    def start(self, cname: str, image_ref: str, *, annotations: dict[str, str]) -> None:
-        """Start the container/jail.  Raises on failure."""
+    def start(
+        self,
+        cname: str,
+        image_ref: str,
+        *,
+        annotations: dict[str, str],
+        env: dict[str, str] | None = None,
+        volumes: list[str] | None = None,
+    ) -> None:
+        """Start the container/jail.  Raises on failure.
+
+        *env* and *volumes*, when supported, set environment variables and
+        bind/named-volume mounts.  Backends that cannot honour them must
+        raise rather than silently ignore.
+        """
 
     @abstractmethod
     def get_ip(self, cname: str) -> str:
@@ -58,8 +71,18 @@ class PodmanBackend(ContainerBackend):
     def available(cls) -> bool:
         return shutil.which("podman") is not None
 
-    def start(self, cname: str, image_ref: str, *, annotations: dict[str, str]) -> None:
-        cid = podman.run_detached(image_ref, name=cname, annotations=annotations)
+    def start(
+        self,
+        cname: str,
+        image_ref: str,
+        *,
+        annotations: dict[str, str],
+        env: dict[str, str] | None = None,
+        volumes: list[str] | None = None,
+    ) -> None:
+        cid = podman.run_detached(
+            image_ref, name=cname, annotations=annotations, env=env, volumes=volumes,
+        )
         log.info(f"Started: {cid}")
 
     def get_ip(self, cname: str) -> str:
@@ -86,8 +109,21 @@ class AppJailBackend(ContainerBackend):
     def available(cls) -> bool:
         return shutil.which("appjail") is not None
 
-    def start(self, cname: str, image_ref: str, *, annotations: dict[str, str]) -> None:
+    def start(
+        self,
+        cname: str,
+        image_ref: str,
+        *,
+        annotations: dict[str, str],
+        env: dict[str, str] | None = None,
+        volumes: list[str] | None = None,
+    ) -> None:
         from dbuild import appjail as aj
+        if env or volumes:
+            raise NotImplementedError(
+                "appjail backend does not support env/volumes "
+                "(used by the --puid test); run --puid with --backend podman",
+            )
         jail_allow = [
             k.replace("org.freebsd.jail.", "")
             for k in annotations

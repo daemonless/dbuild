@@ -401,5 +401,65 @@ class TestCopyFile(unittest.TestCase):
             os.unlink(dst_path)
 
 
+class _FakePuidBackend:
+    """Stub ContainerBackend that replays canned exec results for --puid."""
+
+    def __init__(self, uid: str, gid: str, find_output: str = ""):
+        self._uid = uid
+        self._gid = gid
+        self._find = find_output
+
+    def exec_in(self, cname, cmd):
+        import subprocess as _sp
+        if cmd[:2] == ["id", "-u"]:
+            out = self._uid + "\n"
+        elif cmd[:2] == ["id", "-g"]:
+            out = self._gid + "\n"
+        elif cmd[0] == "find":
+            out = self._find
+        else:
+            out = ""
+        return _sp.CompletedProcess(args=cmd, returncode=0, stdout=out, stderr="")
+
+
+class TestPuidAssert(unittest.TestCase):
+    """Tests for _puid_assert()."""
+
+    def test_pass_when_remapped_and_owned(self):
+        be = _FakePuidBackend("1234", "5678", find_output="")
+        ok, msg = cit._puid_assert(be, "c", 1234, 5678)
+        self.assertTrue(ok, msg)
+
+    def test_fail_on_wrong_uid(self):
+        be = _FakePuidBackend("1000", "1000", find_output="")
+        ok, msg = cit._puid_assert(be, "c", 1234, 5678)
+        self.assertFalse(ok)
+        self.assertIn("expected 1234:5678", msg)
+
+    def test_fail_when_paths_not_rechowned(self):
+        be = _FakePuidBackend("1234", "5678", find_output="/config/.cit-puid-marker\n")
+        ok, msg = cit._puid_assert(be, "c", 1234, 5678)
+        self.assertFalse(ok)
+        self.assertIn("/config/.cit-puid-marker", msg)
+
+
+class TestPuidPhase(unittest.TestCase):
+    """Tests for _puid_phase() result tracking."""
+
+    def test_ownership_fail_short_circuits(self):
+        # Wrong uid on deploy 1 -> ownership fails, no redeploy attempted.
+        be = _FakePuidBackend("9999", "9999")
+        be.stop = lambda *a, **k: None
+        results: dict[str, str] = {}
+        with patch.object(cit, "_wait_for_ready", return_value=True):
+            rc = cit._puid_phase(
+                be, "c1", "c2", "img:build-latest",
+                volume="vol", annotations={}, wait=5, results=results,
+            )
+        self.assertEqual(rc, 1)
+        self.assertEqual(results["ownership"], "fail")
+        self.assertNotIn("re-chown", results)
+
+
 if __name__ == "__main__":
     unittest.main()

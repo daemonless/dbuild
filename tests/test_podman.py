@@ -172,6 +172,24 @@ class TestRunDetached(unittest.TestCase):
         idx = cmd.index("--annotation")
         self.assertEqual(cmd[idx + 1], "org.freebsd.jail.allow.mlock=true")
 
+    @patch("dbuild.podman._run")
+    def test_with_env_and_volumes(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+        podman.run_detached(
+            "myimage:latest",
+            name="test-ctr",
+            env={"PUID": "1234", "PGID": "5678"},
+            volumes=["myvol:/config"],
+        )
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("-e", cmd)
+        self.assertIn("PUID=1234", cmd)
+        self.assertIn("PGID=5678", cmd)
+        self.assertIn("-v", cmd)
+        self.assertIn("myvol:/config", cmd)
+
 
 class TestContainerRunning(unittest.TestCase):
     """Tests for container_running()."""

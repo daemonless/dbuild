@@ -212,11 +212,21 @@ def run_detached(
     name: str,
     network: str = "podman",
     annotations: dict[str, str] | None = None,
+    env: dict[str, str] | None = None,
+    volumes: list[str] | None = None,
 ) -> str:
-    """Run a container in the background.  Returns container ID."""
+    """Run a container in the background.  Returns container ID.
+
+    *env* maps environment variable names to values (``-e KEY=VALUE``).
+    *volumes* is a list of ``-v`` mount specs (e.g. ``"vol:/config"``).
+    """
     cmd = ["podman", "run", "-d", "--name", name, f"--network={network}"]
     for key, val in (annotations or {}).items():
         cmd += ["--annotation", f"{key}={val}"]
+    for key, val in (env or {}).items():
+        cmd += ["-e", f"{key}={val}"]
+    for vol in (volumes or []):
+        cmd += ["-v", vol]
     cmd.append(image)
     result = _run(cmd)
     return result.stdout.strip()
@@ -293,6 +303,15 @@ def rm(container_name: str, *, force: bool = True) -> None:
         cmd.append("-f")
     cmd.append(container_name)
     _run(cmd, check=False)
+
+
+def volume_rm(name: str, *, force: bool = True) -> None:
+    """Remove a named volume (ignores errors)."""
+    cmd = ["podman", "volume", "rm"]
+    if force:
+        cmd.append("-f")
+    cmd.append(name)
+    _run(cmd, check=False, quiet=True)
 
 
 def list_containers(filter_expr: str | None = None) -> list[str]:

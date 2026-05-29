@@ -17,6 +17,16 @@ from dbuild.config import load as load_config
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+def _str2bool(v: str) -> bool:
+    """Parse a boolean from a CLI value (for ``--flag=true/false``)."""
+    lv = v.strip().lower()
+    if lv in ("true", "1", "yes", "on"):
+        return True
+    if lv in ("false", "0", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected a boolean value, got {v!r}")
+
+
 def _make_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with all subcommands."""
 
@@ -119,6 +129,17 @@ def _make_parser() -> argparse.ArgumentParser:
         choices=["podman", "appjail", "all"],
         default="all",
         help="which backend(s) to test with: podman, appjail, or all (default: all)",
+    )
+    test_parser.add_argument(
+        "--puid",
+        nargs="?",
+        const=True,
+        default=None,
+        type=_str2bool,
+        metavar="BOOL",
+        help="enable/disable the PUID/PGID re-chown check for this run, "
+             "overriding the `cit: puid:` config (e.g. --puid=false). "
+             "Bare --puid forces it on; default follows config (on). Podman only.",
     )
 
     # -- push --
