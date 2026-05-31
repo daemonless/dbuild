@@ -106,6 +106,11 @@ class AppTestConfig:
                 "volume) during `dbuild test`. Set `false` to opt out for images "
                 "that don't follow the bsd-owned `/config` convention.",
     })
+    puid_ignore: list[str] = field(default_factory=list, metadata={
+        "desc": "Paths under /config (find -path globs) allowed to stay "
+                "non-PUID-owned, e.g. root-owned sshd host keys. The PUID "
+                "ownership check prunes these.",
+    })
     annotations: list[str] = field(default_factory=list)
 
 
@@ -537,6 +542,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
     https = cit.get("https", False)
     compose = cit.get("compose", False)
     puid = cit.get("puid", True)
+    puid_ignore = cit.get("puid_ignore") or []
     annotations = []
 
     # 2. Merge annotations from cit: section
@@ -599,6 +605,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
         https=https,
         compose=compose,
         puid=puid,
+        puid_ignore=puid_ignore,
         annotations=annotations,
     )
 

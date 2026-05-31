@@ -697,7 +697,7 @@ def _test_variant(
             rc = _puid_phase(
                 backend, cname, cname2, build_ref,
                 volume=volume, annotations=annotations,
-                wait=test.wait, results=results,
+                wait=test.wait, results=results, ignore=test.puid_ignore,
             )
         return rc
 
@@ -931,19 +931,33 @@ _PUID_CHANGED = (1234, 5678)
 
 def _puid_assert(
     backend: ContainerBackend, cname: str, want_uid: int, want_gid: int,
+    ignore: list[str] | None = None,
 ) -> tuple[bool, str]:
-    """Verify the ``bsd`` user is remapped and /config is fully owned by it."""
+    """Verify the ``bsd`` user is remapped and /config is fully owned by it.
+
+    Paths matching an *ignore* glob (find ``-path``) are pruned, e.g. a
+    ``/config/ssh`` dir whose host keys must stay root-owned for sshd.
+    """
     uid = backend.exec_in(cname, ["id", "-u", "bsd"]).stdout.strip()
     gid = backend.exec_in(cname, ["id", "-g", "bsd"]).stdout.strip()
     if uid != str(want_uid) or gid != str(want_gid):
         return False, f"id bsd = {uid}:{gid}, expected {want_uid}:{want_gid}"
 
-    # Any path under /config not owned by want_uid:want_gid is a failure.
-    res = backend.exec_in(cname, [
-        "find", "/config",
+    # Any path under /config not owned by want_uid:want_gid is a failure,
+    # except pruned ignore paths.
+    find_cmd = ["find", "/config"]
+    if ignore:
+        prune = []
+        for glob in ignore:
+            if prune:
+                prune.append("-o")
+            prune += ["-path", glob]
+        find_cmd += ["(", *prune, ")", "-prune", "-o"]
+    find_cmd += [
         "(", "!", "-uid", str(want_uid), "-o", "!", "-gid", str(want_gid), ")",
         "-print",
-    ])
+    ]
+    res = backend.exec_in(cname, find_cmd)
     offenders = res.stdout.strip()
     if offenders:
         listed = "\n".join(f"    {p}" for p in offenders.splitlines()[:20])
@@ -978,6 +992,7 @@ def _puid_phase(
     annotations: dict[str, str],
     wait: int,
     results: dict[str, str],
+    ignore: list[str] | None = None,
 ) -> int:
     """Ownership check, integrated into the CIT flow.
 
@@ -994,7 +1009,7 @@ def _puid_phase(
     _wait_for_ready(cname1, _PUID_READY, wait, backend=backend)
 
     # ── Deploy 1: assert ownership on the running CIT container ──
-    ok, msg = _puid_assert(backend, cname1, init_uid, init_gid)
+    ok, msg = _puid_assert(backend, cname1, init_uid, init_gid, ignore)
     if not ok:
         results["ownership"] = "fail"
         log.error(f"ownership (PUID={init_uid}): {msg}")
@@ -1022,7 +1037,7 @@ def _puid_phase(
         log.error("re-chown: redeploy failed to start")
         return 1
 
-    ok, msg = _puid_assert(backend, cname2, new_uid, new_gid)
+    ok, msg = _puid_assert(backend, cname2, new_uid, new_gid, ignore)
     if not ok:
         results["re-chown"] = "fail"
         log.error(f"re-chown: {msg}")
