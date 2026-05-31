@@ -114,7 +114,7 @@ jobs:
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
       - name: Build in FreeBSD VM (${{ matrix.tag }}${{ matrix.arch_suffix }})
-        uses: vmactions/freebsd-vm@v1.4.4
+        uses: vmactions/freebsd-vm@v1.4.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -363,7 +363,7 @@ jobs:
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
       - name: Test in FreeBSD VM
-        uses: vmactions/freebsd-vm@v1.4.4
+        uses: vmactions/freebsd-vm@v1.4.6
         with:
           release: "15.0"
           vnc-password: ${{ secrets.VNC_PASSWORD }}
