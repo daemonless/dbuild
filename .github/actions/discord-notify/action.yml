@@ -34,6 +34,10 @@ inputs:
     description: 'Version string (e.g. "1.2.3" or "1.2.2 → 1.2.3")'
     required: false
     default: ''
+  pushed:
+    description: 'Whether the image was actually pushed (false for PR/test-only builds)'
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -55,9 +59,13 @@ runs:
         SHORT_SHA="${{ inputs.commit_sha }}"
         SHORT_SHA="${SHORT_SHA:0:7}"
 
-        REGISTRY_VALUE="[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})"
-        if [ "${{ inputs.has_dockerhub }}" = "true" ]; then
-          REGISTRY_VALUE="[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }}) / [docker.io](https://hub.docker.com/r/daemonless/${{ inputs.image_name }})"
+        if [ "${{ inputs.pushed }}" = "false" ]; then
+          REGISTRY_VALUE="🧪 test only — not pushed"
+        else
+          REGISTRY_VALUE="[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})"
+          if [ "${{ inputs.has_dockerhub }}" = "true" ]; then
+            REGISTRY_VALUE="[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }}) / [docker.io](https://hub.docker.com/r/daemonless/${{ inputs.image_name }})"
+          fi
         fi
 
         TITLE="${{ inputs.image_name }}:${{ inputs.tag }}"

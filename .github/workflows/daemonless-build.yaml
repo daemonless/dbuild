@@ -294,6 +294,7 @@ jobs:
           branch: ${{ github.ref_name }}
           has_dockerhub: ${{ secrets.DOCKERHUB_USERNAME != '' }}
           version: ${{ steps.ver.outputs.label }}
+          pushed: ${{ github.event_name != 'pull_request' }}
 
   # Create multi-arch manifests
   create-manifests:
