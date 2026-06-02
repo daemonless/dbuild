@@ -150,11 +150,18 @@ class TestVmArchMap(unittest.TestCase):
         for arch in ("amd64", "aarch64", "riscv64"):
             self.assertIn(arch, _VM_ARCH_MAP)
 
-    def test_amd64_no_suffix(self):
-        self.assertEqual(_VM_ARCH_MAP["amd64"]["arch_suffix"], "")
+    def test_amd64_no_vm_arch(self):
+        self.assertEqual(_VM_ARCH_MAP["amd64"]["vm_arch"], "")
 
     def test_riscv64_scp_sync(self):
+        # riscv64 has no FreeBSD binary pkg repo (no rsync in guest) and
+        # vmactions only supports scp for riscv64 — must stay scp.
         self.assertEqual(_VM_ARCH_MAP["riscv64"]["vm_sync"], "scp")
+
+    def test_arch_suffix_not_in_map(self):
+        # Tag suffix lives in config.arch_tag_suffix, not the VM map.
+        for settings in _VM_ARCH_MAP.values():
+            self.assertNotIn("arch_suffix", settings)
 
 
 if __name__ == "__main__":

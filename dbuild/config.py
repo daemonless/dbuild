@@ -45,6 +45,22 @@ VALID_CATEGORIES: list[str] = [
     "Utilities",
 ]
 
+
+# ── Architecture tag suffixes ────────────────────────────────────────
+# Single source of truth, shared by push, manifest, and the CI matrix
+# (detect) so the tags `push` creates are exactly the ones `manifest`
+# looks for.
+
+def arch_tag_suffix(arch: str) -> str:
+    """Return the image-tag suffix for *arch*.
+
+    amd64 is the default architecture and gets no suffix (bare tag);
+    every other architecture is suffixed with ``-<arch>`` (e.g.
+    ``-aarch64``, ``-riscv64``).
+    """
+    return "" if arch == "amd64" else f"-{arch}"
+
+
 # ── Dataclasses ──────────────────────────────────────────────────────
 
 @dataclass

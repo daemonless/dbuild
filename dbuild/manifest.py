@@ -18,32 +18,21 @@ import subprocess
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config
+from dbuild.config import Config, arch_tag_suffix
 
 # ── Architecture tag suffix convention ────────────────────────────────
-# amd64 images have no suffix (bare tag); non-amd64 images are suffixed.
-
-_ARCH_TAG_SUFFIX: dict[str, str] = {
-    "amd64": "",
-    "aarch64": "-arm64",
-    "arm64": "-arm64",
-    "riscv64": "-riscv64",
-}
-
+# Uses the shared `config.arch_tag_suffix` so the tags created by `push`
+# are exactly the ones looked up here (amd64 bare, others ``-<arch>``).
 
 def _arch_tag(base_tag: str, arch: str) -> str:
     """Return the architecture-specific tag for *base_tag*.
 
     Examples:
         _arch_tag("latest", "amd64")    -> "latest"
-        _arch_tag("latest", "aarch64")  -> "latest-arm64"
+        _arch_tag("latest", "aarch64")  -> "latest-aarch64"
         _arch_tag("pkg", "riscv64")     -> "pkg-riscv64"
     """
-    suffix = _ARCH_TAG_SUFFIX.get(arch)
-    if suffix is None:
-        log.warn(f"Unknown architecture {arch} for tag suffix, using -{arch}")
-        suffix = f"-{arch}"
-    return f"{base_tag}{suffix}"
+    return f"{base_tag}{arch_tag_suffix(arch)}"
 
 
 # ── Podman manifest helpers ──────────────────────────────────────────

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from dbuild import log, podman
-from dbuild.config import Config, Variant
+from dbuild.config import Config, Variant, arch_tag_suffix
 
 # Package type categories extracted from Trivy output.
 _TRIVY_PKG_TYPES: dict[str, list[str]] = {
@@ -185,8 +185,7 @@ def _generate_sbom(
 
     # Include arch suffix in tag for non-amd64 so the merge step
     # produces separate entries (e.g. "15" and "15-aarch64").
-    arch_suffix = f"-{arch}" if arch != "amd64" else ""
-    sbom_tag = f"{variant.tag}{arch_suffix}"
+    sbom_tag = f"{variant.tag}{arch_tag_suffix(arch)}"
 
     sbom: dict[str, Any] = {
         "image": cfg.image,

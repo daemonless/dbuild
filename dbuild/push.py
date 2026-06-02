@@ -21,12 +21,7 @@ import os
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config, Variant
-
-
-def _arch_suffix(arch: str) -> str:
-    """Return the tag suffix for *arch* (empty for amd64)."""
-    return f"-{arch}" if arch != "amd64" else ""
+from dbuild.config import Config, Variant, arch_tag_suffix
 
 
 def _version_tag(version: str, variant_tag: str) -> str:
@@ -48,7 +43,7 @@ def _collect_tags(
     then the versioned tag (e.g. ``32.0.5-pkg``).
     Non-amd64 architectures get an arch suffix (e.g. ``15-aarch64``).
     """
-    suffix = _arch_suffix(arch)
+    suffix = arch_tag_suffix(arch)
     tags = [f"{variant.tag}{suffix}"]
     for alias in variant.aliases:
         suffixed = f"{alias}{suffix}"

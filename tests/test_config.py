@@ -16,8 +16,22 @@ from dbuild.config import (
     _load_global_config,
     _parse_test_config,
     _parse_variants,
+    arch_tag_suffix,
     load,
 )
+
+
+class TestArchTagSuffix(unittest.TestCase):
+    """Single source of truth for image-tag arch suffixes."""
+
+    def test_amd64_is_bare(self):
+        self.assertEqual(arch_tag_suffix("amd64"), "")
+
+    def test_aarch64(self):
+        self.assertEqual(arch_tag_suffix("aarch64"), "-aarch64")
+
+    def test_riscv64(self):
+        self.assertEqual(arch_tag_suffix("riscv64"), "-riscv64")
 
 
 class TestAutoDetectVariants(unittest.TestCase):

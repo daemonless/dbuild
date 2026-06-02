@@ -15,13 +15,17 @@ from typing import Any
 
 from dbuild import ci as ci_mod
 from dbuild import log
-from dbuild.config import Config
+from dbuild.config import Config, arch_tag_suffix
 
-# Map architecture → vmactions settings for GitHub Actions FreeBSD VM
+# Map architecture → vmactions settings for GitHub Actions FreeBSD VM.
+# The tag suffix is NOT stored here — it comes from `config.arch_tag_suffix`
+# so push, manifest, and this matrix never drift apart.
+# riscv64 must use sync: scp — it has no FreeBSD binary pkg repo (so no
+# rsync in the guest) and vmactions only supports scp for riscv64.
 _VM_ARCH_MAP: dict[str, dict[str, str]] = {
-    "amd64":   {"arch_suffix": "",          "vm_arch": "",        "vm_sync": "rsync"},
-    "aarch64": {"arch_suffix": "-aarch64",  "vm_arch": "aarch64", "vm_sync": "rsync"},
-    "riscv64": {"arch_suffix": "-riscv64",  "vm_arch": "riscv64", "vm_sync": "scp"},
+    "amd64":   {"vm_arch": "",        "vm_sync": "rsync"},
+    "aarch64": {"vm_arch": "aarch64", "vm_sync": "rsync"},
+    "riscv64": {"vm_arch": "riscv64", "vm_sync": "scp"},
 }
 
 
@@ -63,7 +67,7 @@ def _github_extras(
         enriched.append({
             **entry,
             "type": cfg.type,
-            "arch_suffix": vm["arch_suffix"],
+            "arch_suffix": arch_tag_suffix(entry["arch"]),
             "vm_arch": vm["vm_arch"],
             "vm_sync": vm["vm_sync"],
         })
