@@ -139,9 +139,9 @@ jobs:
             mdconfig -a -t vnode -f /swapfile -u 0
             swapon /dev/md0
 
-            # Install build tools from pinned bundle
+            # Install build tools from pinned bundle (arch-specific via arch_suffix).
             fetch -qo /tmp/build-tools.tar.gz \
-              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}.tar.gz"
+              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}${{ matrix.arch_suffix }}.tar.gz"
             mkdir -p /tmp/build-tools
             tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
@@ -183,8 +183,9 @@ jobs:
             NEW_VERSION=$(podman run --rm --entrypoint "" "ghcr.io/daemonless/${IMAGE_NAME}:build-${VARIANT}" cat /app/version 2>/dev/null || echo "")
             echo "$NEW_VERSION" > .version-new
 
-            # Install screenshot deps only if CIT mode requires it
-            if grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; then
+            # Screenshot deps: amd64 only (no aarch64 chromium); dbuild then
+            # auto-downgrades screenshot -> health on aarch64.
+            if [ -z "${{ matrix.arch_suffix }}" ] && { grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; }; then
               SS_REF=$(echo "${{ needs.detect.outputs.build_tools_ref }}" | sed 's/\(freebsd-[0-9.]*-\)/\1screenshot-/')
               fetch -qo /tmp/build-tools-screenshot.tar.gz \
                 "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${SS_REF}.tar.gz"
