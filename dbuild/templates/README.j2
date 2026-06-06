@@ -28,12 +28,12 @@
 {%- macro compose_snippet(override_port=None) -%}
 services:
   {{ name }}:
-    image: {{ reg_var }}/{{ name }}:latest
+    image: "{{ reg_var }}/{{ name }}:latest"
     container_name: {{ name }}
 {%- if env %}
     environment:
 {%- for e in env %}
-      - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}
+      - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}{{ "  # " ~ e.desc if e.desc else "" }}
 {%- endfor %}
 {%- endif %}
 {%- if volumes %}
@@ -46,9 +46,9 @@ services:
     ports:
 {%- for p in ports %}
 {%- if loop.first %}
-      - {{ override_port if override_port else port_var }}:{{ p.target }}
+      - "{{ override_port if override_port else port_var }}:{{ p.target }}"
 {%- else %}
-      - {{ p.port }}:{{ p.target }}
+      - "{{ p.port }}:{{ p.target }}"
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -131,7 +131,7 @@ podman run -d --name {{ name }} \
 - name: Deploy {{ name }}
   containers.podman.podman_container:
     name: {{ name }}
-    image: {{ reg_var }}/{{ name }}:latest
+    image: "{{ reg_var }}/{{ name }}:latest"
     state: started
     restart_policy: always
 {%- if env %}
