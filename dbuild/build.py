@@ -72,10 +72,7 @@ def _build_variant(
     build_args: dict[str, str] = {
         "FREEBSD_ARCH": freebsd_arch,
     }
-    # Inject BASE_VERSION from variant args (if present).
-    if "BASE_VERSION" in variant.args:
-        build_args["BASE_VERSION"] = variant.args["BASE_VERSION"]
-    # Merge any additional variant-specific build args.
+    # Merge variant-specific build args (incl. BASE_VERSION).
     for key, val in variant.args.items():
         build_args.setdefault(key, val)
     # Auto-inject pkg_name as PKG_NAME if set and not already provided.

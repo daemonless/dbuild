@@ -314,7 +314,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- endif %}
 {%- endblock %}
 
-{%- if ports and cit_mode == "http" %}
+{%- if ports and cit_mode in ("health", "screenshot") %}
 
 Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else port_var }}`
 {%- endif %}

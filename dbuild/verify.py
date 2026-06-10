@@ -25,12 +25,17 @@ def is_blank(img: np.ndarray) -> bool:
     return np.std(gray) < BLANK_THRESHOLD / 255
 
 
-def has_ui_elements(img: np.ndarray) -> bool:
-    """Return True if the image has edges (UI elements like buttons, text)."""
+def has_ui_elements(img: np.ndarray, edge_threshold: float | None = None) -> bool:
+    """Return True if the image has edges (UI elements like buttons, text).
+
+    ``edge_threshold`` overrides the default for sparse/dark UIs (a small card on
+    a large dark background has few edges spread across the whole frame).
+    """
     gray = color.rgb2gray(img) if img.ndim == 3 else img
     edges = filters.sobel(gray)
     edge_ratio = np.mean(edges > 0.1)
-    return edge_ratio > EDGE_THRESHOLD
+    used = edge_threshold if edge_threshold is not None else EDGE_THRESHOLD
+    return edge_ratio > used
 
 
 def compare_images(
@@ -50,7 +55,10 @@ def compare_images(
 
 
 def verify(
-    image_path: str, baseline_path: str | None = None, threshold: float | None = None
+    image_path: str,
+    baseline_path: str | None = None,
+    threshold: float | None = None,
+    edge_threshold: float | None = None,
 ) -> tuple[bool, str]:
     """Verify a screenshot is valid.
 
@@ -70,7 +78,7 @@ def verify(
     if is_blank(img):
         return False, "Image is blank (failed render)"
 
-    if not has_ui_elements(img):
+    if not has_ui_elements(img, edge_threshold):
         return False, "No UI elements detected"
 
     if baseline_path:

@@ -168,9 +168,9 @@ class TestDowngradeMode(unittest.TestCase):
         result = cit._downgrade_mode("screenshot", port=8080, health="/api")
         self.assertEqual(result, "health")
 
-    def test_screenshot_to_health_with_port_only(self):
+    def test_screenshot_to_port_with_port_only(self):
         result = cit._downgrade_mode("screenshot", port=8080, health=None)
-        self.assertEqual(result, "health")
+        self.assertEqual(result, "port")
 
     def test_screenshot_to_shell_with_nothing(self):
         result = cit._downgrade_mode("screenshot", port=None, health=None)
@@ -358,7 +358,8 @@ class TestEmergencyCleanup(unittest.TestCase):
     def test_emergency_cleanup_removes_containers(self, mock_rm, mock_stop):
         from dbuild.container_backend import PodmanBackend
         cit._cleanup_targets.clear()
-        cit._cleanup_targets.append((None, PodmanBackend(), "test-container"))
+        cit._cleanup_targets.append(
+            cit._CleanupTarget(backend=PodmanBackend(), cname="test-container"))
         cit._emergency_cleanup()
         mock_stop.assert_called_once_with("test-container")
         mock_rm.assert_called_once_with("test-container")
@@ -367,7 +368,8 @@ class TestEmergencyCleanup(unittest.TestCase):
     @patch("dbuild.test.podman.compose_down")
     def test_emergency_cleanup_removes_compose(self, mock_down):
         cit._cleanup_targets.clear()
-        cit._cleanup_targets.append(("/path/to/compose.yaml", None, None))
+        cit._cleanup_targets.append(
+            cit._CleanupTarget(compose_file="/path/to/compose.yaml"))
         cit._emergency_cleanup()
         mock_down.assert_called_once_with("/path/to/compose.yaml")
         self.assertEqual(len(cit._cleanup_targets), 0)
@@ -377,9 +379,28 @@ class TestEmergencyCleanup(unittest.TestCase):
     def test_emergency_cleanup_swallows_errors(self, mock_rm, mock_stop):
         from dbuild.container_backend import PodmanBackend
         cit._cleanup_targets.clear()
-        cit._cleanup_targets.append((None, PodmanBackend(), "test-container"))
+        cit._cleanup_targets.append(
+            cit._CleanupTarget(backend=PodmanBackend(), cname="test-container"))
         # Should not raise
         cit._emergency_cleanup()
+        self.assertEqual(len(cit._cleanup_targets), 0)
+
+    @patch("dbuild.test.podman.compose_down")
+    @patch("dbuild.test.podman.stop")
+    @patch("dbuild.test.podman.rm")
+    def test_emergency_cleanup_handles_mixed_writers(self, mock_rm, mock_stop, mock_down):
+        """Regression (#2): entries from _test_variant AND run_screenshot must
+        both clean up; a malformed entry from one path must not abort the rest."""
+        from dbuild.container_backend import PodmanBackend
+        cit._cleanup_targets.clear()
+        # run_screenshot-style entry first, CIT entry second
+        cit._cleanup_targets.append(
+            cit._CleanupTarget(backend=PodmanBackend(), cname="screenshot-1-100"))
+        cit._cleanup_targets.append(
+            cit._CleanupTarget(compose_file="/path/to/compose.yaml"))
+        cit._emergency_cleanup()
+        mock_stop.assert_called_once_with("screenshot-1-100")
+        mock_down.assert_called_once_with("/path/to/compose.yaml")
         self.assertEqual(len(cit._cleanup_targets), 0)
 
 

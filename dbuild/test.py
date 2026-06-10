@@ -24,6 +24,7 @@ import socket
 import ssl
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,8 +34,23 @@ from dbuild.container_backend import AppJailBackend, ContainerBackend, PodmanBac
 
 # ── Cleanup registry (survives SIGTERM) ───────────────────────────────
 
-_cleanup_targets: list[tuple[str | None, ContainerBackend | None, str | None]] = []
-"""Stack of (compose_file, backend, cname) to clean up on exit."""
+@dataclass
+class _CleanupTarget:
+    """A container or compose stack to tear down on exit or SIGTERM."""
+
+    compose_file: str | None = None
+    backend: ContainerBackend | None = None
+    cname: str | None = None
+
+    def cleanup(self) -> None:
+        if self.compose_file:
+            podman.compose_down(self.compose_file)
+        elif self.backend and self.cname:
+            self.backend.stop(self.cname)
+
+
+_cleanup_targets: list[_CleanupTarget] = []
+"""Stack of targets to clean up on exit."""
 
 _volume_cleanup: list[str] = []
 """Named volumes to remove on exit (used by the --puid test)."""
@@ -42,14 +58,9 @@ _volume_cleanup: list[str] = []
 
 def _emergency_cleanup(*_args) -> None:
     """Remove all registered containers/stacks/volumes, then exit."""
-    for compose_file, backend, cname in _cleanup_targets:
-        try:
-            if compose_file:
-                podman.compose_down(compose_file)
-            elif backend and cname:
-                backend.stop(cname)
-        except Exception:
-            pass
+    for target in _cleanup_targets:
+        with contextlib.suppress(Exception):
+            target.cleanup()
     _cleanup_targets.clear()
     for vol in _volume_cleanup:
         with contextlib.suppress(Exception):
@@ -171,7 +182,7 @@ def _downgrade_mode(
     screenshot → health → port → shell
     """
     if mode == "screenshot":
-        if health or port:
+        if health:
             return "health"
         if port:
             return "port"
@@ -311,13 +322,16 @@ def _test_health(
     url = f"{scheme}://{ip}:{port}{path}"
     log.info(f"Health check: {url} (timeout: {timeout}s)")
 
+    ctx: ssl.SSLContext | None = None
+    if https:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
     elapsed = 0
     while elapsed < timeout:
         try:
             if https:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
                 conn = http.client.HTTPSConnection(ip, port, timeout=5, context=ctx)
             else:
                 conn = http.client.HTTPConnection(ip, port, timeout=5)
@@ -349,6 +363,7 @@ def _test_screenshot(
     baseline: Path | None = None,
     save_to: str | None = None,
     ssim_threshold: float | None = None,
+    edge_threshold: float | None = None,
 ) -> tuple[bool, str]:
     """Capture and verify a screenshot.
 
@@ -377,7 +392,7 @@ def _test_screenshot(
             return False, "Screenshot capture failed"
 
         # Basic verification
-        passed, msg = verify(screenshot_file)
+        passed, msg = verify(screenshot_file, edge_threshold=edge_threshold)
         if not passed:
             if save_to:
                 _copy_file(screenshot_file, save_to)
@@ -386,7 +401,10 @@ def _test_screenshot(
         # Baseline comparison
         if baseline and baseline.is_file():
             log.info(f"Comparing to baseline: {baseline}")
-            passed, msg = verify(screenshot_file, str(baseline), threshold=ssim_threshold)
+            passed, msg = verify(
+                screenshot_file, str(baseline),
+                threshold=ssim_threshold, edge_threshold=edge_threshold,
+            )
             if not passed:
                 if save_to:
                     _copy_file(screenshot_file, save_to)
@@ -410,6 +428,25 @@ def _copy_file(src: str, dest: str) -> None:
 
 
 # ── Result tracking ──────────────────────────────────────────────────
+
+def _json_output_path(base: str, *, backend: str | None, tag: str | None) -> str:
+    """Derive a per-run JSON path by suffixing backend/tag before the extension.
+
+    Used when one ``dbuild test`` invocation produces multiple results
+    (several variants and/or backends) so each run gets its own file
+    instead of overwriting *base*::
+
+        _json_output_path("cit-result.json", backend=None, tag="pkg")
+            -> "cit-result-pkg.json"
+        _json_output_path("cit-result.json", backend="appjail", tag="pkg")
+            -> "cit-result-appjail-pkg.json"
+    """
+    parts = [p for p in (backend, tag) if p]
+    if not parts:
+        return base
+    path = Path(base)
+    return str(path.with_name(f"{path.stem}-{'-'.join(parts)}{path.suffix}"))
+
 
 def _write_json_result(
     path: str,
@@ -470,6 +507,15 @@ def _functional_checks(
 
     Does not manage container lifecycle.  Returns 0 on success, 1 on failure.
     """
+    # Compose stacks have no single container to exec into, so shell mode
+    # cannot prove anything — require at least a port to test against.
+    if compose_mode and mode == "shell":
+        log.error(
+            "compose: true needs a port or health endpoint to test "
+            "(shell mode is not supported with compose)"
+        )
+        return 1
+
     # === SHELL TEST ===
     if not compose_mode:
         if not _test_shell(cname, backend=backend):
@@ -493,7 +539,12 @@ def _functional_checks(
             _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
 
     # === PORT TEST ===
-    assert port is not None
+    if port is None:
+        log.error(
+            f"Mode '{mode}' needs a port -- set cit: port: in config "
+            "or the io.daemonless.port label"
+        )
+        return 1
     if not _test_port(ip, port, test.wait):
         results["port"] = "fail"
         _dump_logs(compose_mode, compose_file, backend, cname)
@@ -504,7 +555,12 @@ def _functional_checks(
         return 0
 
     # === HEALTH TEST ===
-    assert health is not None
+    if health is None:
+        log.error(
+            f"Mode '{mode}' needs a health path -- set cit: health: in config "
+            "or the io.daemonless.healthcheck-url label"
+        )
+        return 1
     if not _test_health(ip, port, health, test.wait, https=https):
         results["health"] = "fail"
         _dump_logs(compose_mode, compose_file, backend, cname)
@@ -525,6 +581,7 @@ def _functional_checks(
         baseline=baseline,
         save_to=screenshot_save,
         ssim_threshold=test.ssim_threshold,
+        edge_threshold=test.edge_threshold,
     )
     if not passed:
         results["screenshot"] = "fail"
@@ -659,14 +716,15 @@ def _test_variant(
     start_vols = [f"{volume}:/config"] if puid_run else None
 
     # -- Register for cleanup (survives SIGTERM) --
-    cleanup_entry: tuple[str | None, ContainerBackend | None, str | None] = (
-        str(compose_file) if compose_mode and compose_file else None,
-        None if compose_mode else backend,
-        None if compose_mode else cname,
+    cleanup_entry = _CleanupTarget(
+        compose_file=str(compose_file) if compose_mode and compose_file else None,
+        backend=None if compose_mode else backend,
+        cname=None if compose_mode else cname,
     )
+    rechown_entry = _CleanupTarget(backend=backend, cname=cname2)
     _cleanup_targets.append(cleanup_entry)
     if puid_run:
-        _cleanup_targets.append((None, backend, cname2))
+        _cleanup_targets.append(rechown_entry)
         assert volume is not None
         _volume_cleanup.append(volume)
 
@@ -720,7 +778,7 @@ def _test_variant(
                 _volume_cleanup.remove(volume)
 
         # Deregister from emergency cleanup
-        for entry in (cleanup_entry, (None, backend, cname2)):
+        for entry in (cleanup_entry, rechown_entry):
             if entry in _cleanup_targets:
                 _cleanup_targets.remove(entry)
 
@@ -831,9 +889,11 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
 
     # -- Cleanup registration --
     container_name = f"screenshot-{int(time.time())}-{os.getpid()}"
-    cleanup_entry = (
-        str(compose_file) if compose_mode and compose_file else None,
-        container_name if not compose_mode else None,
+    backend = PodmanBackend()
+    cleanup_entry = _CleanupTarget(
+        compose_file=str(compose_file) if compose_mode and compose_file else None,
+        backend=None if compose_mode else backend,
+        cname=None if compose_mode else container_name,
     )
     _cleanup_targets.append(cleanup_entry)
 
@@ -857,7 +917,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Started: {cid}")
 
             # Shell check
-            if not _test_shell(container_name, backend=PodmanBackend()):
+            if not _test_shell(container_name, backend=backend):
                 return 1
 
             ip = podman.inspect_ip(container_name)
@@ -867,7 +927,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Container IP: {ip}")
 
             # Wait for ready
-            _wait_for_ready(container_name, ready_patterns, test.wait, backend=PodmanBackend())
+            _wait_for_ready(container_name, ready_patterns, test.wait, backend=backend)
 
         # Wait for port
         if not _test_port(ip, port, test.wait):
@@ -909,11 +969,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
 
     finally:
         log.info("Cleaning up...")
-        if compose_mode and compose_file:
-            podman.compose_down(str(compose_file))
-        else:
-            podman.stop(container_name)
-            podman.rm(container_name)
+        cleanup_entry.cleanup()
         if cleanup_entry in _cleanup_targets:
             _cleanup_targets.remove(cleanup_entry)
 
@@ -1067,8 +1123,8 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         ``0`` if all tests passed, otherwise the first non-zero exit code.
     """
     from dbuild import ci as ci_mod
-    backend = ci_mod.detect()
-    if backend.should_skip("test"):
+    ci = ci_mod.detect()
+    if ci.should_skip("test"):
         log.info("Skipping tests ([skip test] in commit message)")
         return 0
 
@@ -1078,10 +1134,10 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
 
     variant_filter: str | None = getattr(args, "variant", None)
     json_output: str | None = getattr(args, "json_output", None)
-    backend: str = getattr(args, "backend", "all")
+    backend_arg: str = getattr(args, "backend", "all")
 
     # Determine which backends to run
-    if backend == "all":
+    if backend_arg == "all":
         backends = ["podman"]
         if cfg.metadata.appjail:
             if AppJailBackend.available():
@@ -1089,7 +1145,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             else:
                 log.warn("appjail configured but not installed — skipping appjail backend")
     else:
-        backends = [backend]
+        backends = [backend_arg]
 
     # PUID/PGID ownership check — folded into each variant's CIT run.
     # `--puid=true/false` overrides the per-image `cit: puid:` config.
@@ -1102,16 +1158,29 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     # (backend, tag, mode, passed)
     results_table: list[tuple[str, str, str, bool]] = []
 
+    # Per-run JSON paths: when one invocation produces multiple results,
+    # suffix the filename with whatever varies so runs don't overwrite
+    # each other (the single-run case keeps the exact path given).
+    matching = [
+        v for v in cfg.variants
+        if not variant_filter or v.tag == variant_filter
+    ]
+
     for force_backend in backends:
         if len(backends) > 1:
             log.step(f"Backend: {force_backend}")
-        for variant in cfg.variants:
-            if variant_filter and variant.tag != variant_filter:
-                continue
+        for variant in matching:
+            out_path = json_output
+            if json_output:
+                out_path = _json_output_path(
+                    json_output,
+                    backend=force_backend if len(backends) > 1 else None,
+                    tag=variant.tag if len(matching) > 1 else None,
+                )
             out: dict = {}
             rc = _test_variant(
                 cfg, variant, cfg.test,
-                json_output=json_output,
+                json_output=out_path,
                 force_backend=force_backend,
                 puid_enabled=puid_enabled,
                 out=out,

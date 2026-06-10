@@ -80,7 +80,7 @@ class TestConfigureNetworking(unittest.TestCase):
     @patch("dbuild.prepare._run")
     def test_kldload_and_sysctl(self, mock_run):
         prepare.configure_networking()
-        mock_run.assert_any_call(["kldload", "pf"])
+        mock_run.assert_any_call(["kldload", "-n", "pf"])
         mock_run.assert_any_call(["sysctl", "net.inet.ip.forwarding=1"])
 
 

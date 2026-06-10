@@ -139,7 +139,7 @@ def _list_local_images(cfg: Config) -> tuple[list[dict], list[dict]]:
     pushed = []
     cache = []
     for img in imgs:
-        names = img.get("Names") or img.get("History") or []
+        names = img.get("Names") or []
         tag = "none"
         for name in names:
             if ":" in name:

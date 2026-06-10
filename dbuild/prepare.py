@@ -95,7 +95,7 @@ def cleanup_containers() -> None:
 def configure_networking() -> None:
     """Load pf kernel module and enable IP forwarding."""
     log.step("Configuring networking")
-    _run(["kldload", "pf"])
+    _run(["kldload", "-n", "pf"])
     _run(["sysctl", "net.inet.ip.forwarding=1"])
 
 

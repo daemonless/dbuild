@@ -111,6 +111,9 @@ class AppTestConfig:
     ssim_threshold: float | None = field(default=None, metadata={
         "desc": "Override the SSIM similarity threshold for screenshot comparison (0.0-1.0)",
     })
+    edge_threshold: float | None = field(default=None, metadata={
+        "desc": "Override the edge-ratio threshold for the UI-element check (default 0.005; lower for sparse/dark UIs)",
+    })
     https: bool = field(default=False, metadata={
         "desc": "Use HTTPS for health and screenshot checks",
     })
@@ -555,6 +558,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
     screenshot_wait = cit.get("screenshot_wait")
     screenshot_path = cit.get("screenshot")
     ssim_threshold = cit.get("ssim_threshold")
+    edge_threshold = cit.get("edge_threshold")
     https = cit.get("https", False)
     compose = cit.get("compose", False)
     puid = cit.get("puid", True)
@@ -586,8 +590,8 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
                 health_path = health.get("path", "/")
             if not ready:
                 ready = health.get("ready")
-            if mode == "":
-                mode = "http" if port else "none"
+            # Mode is left empty so test.py's _resolve_mode auto-detects
+            # (health/port/screenshot) from the merged values.
 
         # 4. Extract annotations from the first service in compose.yaml
         services = compose_data.get("services", {})
@@ -618,6 +622,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
         screenshot_wait=screenshot_wait,
         screenshot_path=screenshot_path,
         ssim_threshold=ssim_threshold,
+        edge_threshold=edge_threshold,
         https=https,
         compose=compose,
         puid=puid,

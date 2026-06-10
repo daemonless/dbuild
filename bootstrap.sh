@@ -8,12 +8,12 @@
 # Override: place .daemonless/bootstrap.sh in your image repo.
 #
 # Environment:
-#   DBUILD_REF  - dbuild version to fetch (default: v2)
+#   DBUILD_REF  - dbuild version to fetch (default: v1.9.0)
 #   DBUILD_DIR  - install location (default: /tmp/dbuild)
 
 set -e
 
-DBUILD_REF="${DBUILD_REF:-v2}"
+DBUILD_REF="${DBUILD_REF:-v1.9.0}"
 DBUILD_DIR="${DBUILD_DIR:-/tmp/dbuild}"
 
 # ── Install python3 + PyYAML (minimum to run dbuild) ────────────────
