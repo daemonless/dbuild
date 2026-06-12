@@ -71,6 +71,28 @@ def _manifest_add(manifest: str, image_ref: str) -> None:
         )
 
 
+def _manifest_annotate_index(manifest: str, annotations: dict[str, str]) -> None:
+    """Set index-level annotations on a manifest list (best-effort).
+
+    GHCR reads ``org.opencontainers.image.description`` for the per-tag
+    package page from the index annotations of a manifest list.  Requires
+    ``podman manifest annotate --index`` (podman >= 4.6); warns and
+    continues on older versions.
+    """
+    for key, val in annotations.items():
+        cmd = [
+            *podman._priv_prefix(),
+            "podman", "manifest", "annotate", "--index",
+            "--annotation", f"{key}={val}", manifest,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            log.warn(
+                f"manifest annotate failed for {key} "
+                f"(podman too old for --index?): {result.stderr.strip()}"
+            )
+
+
 def _manifest_push(manifest: str) -> None:
     """Push a manifest list to the registry."""
     log.info(f"Pushing manifest: {manifest}")
@@ -132,6 +154,12 @@ def _create_manifest_for_tag(
 
     for ref in arch_refs:
         _manifest_add(manifest_name, ref)
+
+    # Index annotations (GHCR per-tag description).
+    if cfg.metadata.description:
+        _manifest_annotate_index(manifest_name, {
+            "org.opencontainers.image.description": cfg.metadata.description,
+        })
 
     # Push.
     _manifest_push(manifest_name)

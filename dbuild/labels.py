@@ -49,20 +49,30 @@ def build_labels(
     return labels
 
 
-def apply(image_ref: str, labels: dict[str, str]) -> None:
-    """Apply *labels* to *image_ref* using buildah.
+def apply(
+    image_ref: str,
+    labels: dict[str, str],
+    annotations: dict[str, str] | None = None,
+) -> None:
+    """Apply *labels* (and optional manifest *annotations*) to *image_ref*.
 
-    This creates a temporary working container, sets the labels via
-    ``buildah config``, commits back to the same image reference, and
-    cleans up the working container.
+    This creates a temporary working container, sets the labels and
+    annotations via ``buildah config``, commits back to the same image
+    reference, and cleans up the working container.
+
+    Annotations land in the OCI image manifest rather than the config
+    blob.  GHCR reads ``org.opencontainers.image.description`` from the
+    manifest annotations for the per-tag package page; with labels alone
+    it shows "No description provided".
     """
-    if not labels:
+    if not labels and not annotations:
         return
 
-    log.info(f"Applying {len(labels)} label(s) to {image_ref}")
+    n_ann = len(annotations) if annotations else 0
+    log.info(f"Applying {len(labels)} label(s), {n_ann} annotation(s) to {image_ref}")
     container_id = podman.bah_from(image_ref)
     try:
-        podman.bah_config(container_id, labels=labels)
+        podman.bah_config(container_id, labels=labels, annotations=annotations)
         podman.bah_commit(container_id, image_ref)
     finally:
         podman.bah_rm(container_id)

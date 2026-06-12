@@ -79,3 +79,37 @@ class TestBuildLabels(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApply(unittest.TestCase):
+    """Tests for apply() annotation passthrough."""
+
+    @patch("dbuild.labels.podman")
+    def test_annotations_passed_to_bah_config(self, mock_podman):
+        from dbuild.labels import apply
+        mock_podman.bah_from.return_value = "wc-1"
+        apply(
+            "img:build-latest",
+            {"org.opencontainers.image.version": "1.0"},
+            annotations={"org.opencontainers.image.description": "Desc"},
+        )
+        mock_podman.bah_config.assert_called_once_with(
+            "wc-1",
+            labels={"org.opencontainers.image.version": "1.0"},
+            annotations={"org.opencontainers.image.description": "Desc"},
+        )
+        mock_podman.bah_commit.assert_called_once()
+        mock_podman.bah_rm.assert_called_once_with("wc-1")
+
+    @patch("dbuild.labels.podman")
+    def test_annotations_only_still_applies(self, mock_podman):
+        from dbuild.labels import apply
+        mock_podman.bah_from.return_value = "wc-1"
+        apply("img:build-latest", {}, annotations={"k": "v"})
+        mock_podman.bah_config.assert_called_once()
+
+    @patch("dbuild.labels.podman")
+    def test_noop_when_both_empty(self, mock_podman):
+        from dbuild.labels import apply
+        apply("img:build-latest", {})
+        mock_podman.bah_from.assert_not_called()

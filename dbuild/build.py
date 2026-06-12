@@ -104,13 +104,17 @@ def _build_variant(
     else:
         log.warn("No version detected")
 
-    # ---- apply OCI labels ----
+    # ---- apply OCI labels + manifest annotations ----
     log.step(f"Applying labels for :{variant.tag}")
     oci_labels = labels.build_labels(
         version=app_version,
         variant_tag=variant.tag,
     )
-    labels.apply(full_build_ref, oci_labels)
+    # GHCR shows the per-tag description only from manifest annotations.
+    annotations: dict[str, str] = {}
+    if cfg.metadata.description:
+        annotations["org.opencontainers.image.description"] = cfg.metadata.description
+    labels.apply(full_build_ref, oci_labels, annotations=annotations)
 
     return full_build_ref
 

@@ -285,3 +285,33 @@ class TestStopRm(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBahConfig(unittest.TestCase):
+    """Tests for bah_config() labels and annotations."""
+
+    @patch("dbuild.podman._run")
+    def test_labels_and_annotations(self, mock_run):
+        podman.bah_config(
+            "wc-1",
+            labels={"io.daemonless.variant": "latest"},
+            annotations={"org.opencontainers.image.description": "A test app"},
+        )
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("--label", cmd)
+        self.assertIn("io.daemonless.variant=latest", cmd)
+        self.assertIn("--annotation", cmd)
+        self.assertIn("org.opencontainers.image.description=A test app", cmd)
+        self.assertEqual(cmd[-1], "wc-1")
+
+    @patch("dbuild.podman._run")
+    def test_annotations_only(self, mock_run):
+        podman.bah_config("wc-1", annotations={"k": "v"})
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("--annotation", cmd)
+        self.assertNotIn("--label", cmd)
+
+    @patch("dbuild.podman._run")
+    def test_noop_when_empty(self, mock_run):
+        podman.bah_config("wc-1")
+        mock_run.assert_not_called()

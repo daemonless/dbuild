@@ -372,13 +372,24 @@ def bah_from(image: str) -> str:
     return result.stdout.strip()
 
 
-def bah_config(container_id: str, *, labels: dict[str, str] | None = None) -> None:
-    """Apply configuration to a buildah working container."""
-    if not labels:
+def bah_config(
+    container_id: str,
+    *,
+    labels: dict[str, str] | None = None,
+    annotations: dict[str, str] | None = None,
+) -> None:
+    """Apply configuration to a buildah working container.
+
+    *labels* go into the image config blob; *annotations* go into the
+    OCI image manifest.
+    """
+    if not labels and not annotations:
         return
     cmd = ["buildah", "config"]
-    for key, val in labels.items():
+    for key, val in (labels or {}).items():
         cmd += ["--label", f"{key}={val}"]
+    for key, val in (annotations or {}).items():
+        cmd += ["--annotation", f"{key}={val}"]
     cmd.append(container_id)
     _run(cmd)
 
