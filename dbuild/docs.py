@@ -340,7 +340,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         src = v["source"]
         tgt = v["target"]
 
-        clean_target = tgt.strip("/").replace("/", "_").upper()
+        clean_target = tgt.strip("/").replace("/", "_").replace("-", "_").upper()
         vol_info = vol_docs.get(str(tgt), "")
         desc = vol_info.get("desc", "") if isinstance(vol_info, dict) else str(vol_info)
         optional = vol_info.get("optional", False) if isinstance(vol_info, dict) else False
@@ -357,7 +357,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             clean_src = src.lstrip("./")
             source_path = f"{cfg.image}/{clean_src}"
             root_var = CONFIG_ROOT_VAR
-            placeholder = f"@{cfg.image.upper().replace('-', '_')}_{clean_src.upper()}_PATH@"
+            placeholder = f"@{cfg.image.upper().replace('-', '_')}_{clean_src.upper().replace('-', '_')}_PATH@"
         else:
             source_path = f"{cfg.image}{tgt}"
             root_var = CONFIG_ROOT_VAR
