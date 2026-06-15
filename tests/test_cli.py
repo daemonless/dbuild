@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import unittest
+import unittest.mock
 
 from dbuild.cli import _apply_overrides, _make_parser
 from dbuild.config import Config
@@ -172,6 +173,18 @@ class TestMakeParser(unittest.TestCase):
         args = self.parser.parse_args(["init", "--woodpecker"])
         self.assertTrue(args.woodpecker)
 
+    # ── Help options ──────────────────────────────────────────────────
+
+    def test_help_command_basic(self):
+        args = self.parser.parse_args(["help"])
+        self.assertEqual(args.command, "help")
+        self.assertIsNone(args.subcommand)
+
+    def test_help_command_with_subcommand(self):
+        args = self.parser.parse_args(["help", "build"])
+        self.assertEqual(args.command, "help")
+        self.assertEqual(args.subcommand, "build")
+
 
 class TestApplyOverrides(unittest.TestCase):
     """Tests for _apply_overrides()."""
@@ -195,6 +208,40 @@ class TestApplyOverrides(unittest.TestCase):
         cfg = _apply_overrides(cfg, args)
         self.assertEqual(cfg.registry, "ghcr.io/daemonless")
         self.assertEqual(cfg.architectures, ["amd64"])
+
+
+class TestMainExecution(unittest.TestCase):
+    """Tests for dbuild.cli.main()."""
+
+    def test_main_help_no_subcommand(self):
+        from dbuild.cli import main
+        with (
+            self.assertRaises(SystemExit) as ctx,
+            unittest.mock.patch("sys.stdout"),
+            unittest.mock.patch("sys.stderr"),
+        ):
+            main(["help"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_main_help_with_subcommand(self):
+        from dbuild.cli import main
+        with (
+            self.assertRaises(SystemExit) as ctx,
+            unittest.mock.patch("sys.stdout"),
+            unittest.mock.patch("sys.stderr"),
+        ):
+            main(["help", "build"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_main_help_invalid_subcommand(self):
+        from dbuild.cli import main
+        with (
+            self.assertRaises(SystemExit) as ctx,
+            unittest.mock.patch("sys.stdout"),
+            unittest.mock.patch("sys.stderr"),
+        ):
+            main(["help", "nonexistent"])
+        self.assertEqual(ctx.exception.code, 2)
 
 
 if __name__ == "__main__":

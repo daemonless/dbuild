@@ -167,6 +167,7 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                             f" (add to x-daemonless.docs.env)"
                         )
 
+    variant_containerfiles: set[str] = set()
     if config_path.exists():
         if verbose:
             print("  checking .daemonless/config.yaml")
@@ -209,6 +210,10 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                         f"Variant '{tag}': args.PKG_NAME={arg_pkg_name!r} is redundant"
                         " — pkg_name is now injected automatically as PKG_NAME"
                     )
+            cf = v.get("containerfile", "")
+            if cf:
+                variant_containerfiles.add(cf)
+                variant_containerfiles.add(cf + ".j2")
 
     if compose_path.exists() and data:
         services = data.get("services", {})
@@ -248,7 +253,10 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
         print("  checking Containerfile")
     has_containerfile = any(
         (repo_path / name).exists()
-        for name in ("Containerfile", "Containerfile.j2", "Containerfile.pkg", "Containerfile.pkg.j2")
+        for name in (
+            "Containerfile", "Containerfile.j2", "Containerfile.pkg", "Containerfile.pkg.j2",
+            *variant_containerfiles,
+        )
     )
     if not has_containerfile:
         errors.append("Missing Containerfile")

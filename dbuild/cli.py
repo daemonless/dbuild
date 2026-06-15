@@ -393,6 +393,19 @@ def _make_parser() -> argparse.ArgumentParser:
         help="run ci-prepare before the pipeline",
     )
 
+    # -- help --
+    help_parser = sub.add_parser(
+        "help",
+        help="show help for a command",
+        description="Show help for a dbuild subcommand.",
+    )
+    help_parser.add_argument(
+        "subcommand",
+        nargs="?",
+        metavar="COMMAND",
+        help="the command to show help for",
+    )
+
     return parser
 
 
@@ -508,7 +521,7 @@ _DISPATCHERS: dict[str, callable] = {
 }
 
 # Commands that run without loading project config
-_NO_CONFIG_COMMANDS: set[str] = {"init", "ci-prepare", "ci-test-env", "lint", "screenshot", "logo"}
+_NO_CONFIG_COMMANDS: set[str] = {"init", "ci-prepare", "ci-test-env", "lint", "screenshot", "logo", "help"}
 
 
 # ── Entry point ───────────────────────────────────────────────────────
@@ -565,6 +578,22 @@ def main(argv: list[str] | None = None) -> None:
             elif args.command == "logo":
                 from dbuild import upstream_assets
                 rc = upstream_assets.run_logo(args)
+            elif args.command == "help":
+                subparsers = next(
+                    action for action in parser._actions
+                    if isinstance(action, argparse._SubParsersAction)
+                )
+                if getattr(args, "subcommand", None):
+                    subcmd = args.subcommand
+                    if subcmd in subparsers.choices:
+                        subparsers.choices[subcmd].print_help()
+                        rc = 0
+                    else:
+                        log.error(f"unknown command: {subcmd}")
+                        rc = 2
+                else:
+                    parser.print_help()
+                    rc = 0
             else:
                 rc = 1
         except KeyboardInterrupt:
