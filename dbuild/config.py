@@ -202,6 +202,12 @@ class Metadata:
     icon: str = field(default=":material-docker:", metadata={
         "desc": "Material or SimpleIcon identifier (e.g. `:simple-postgresql:`)",
     })
+    logo: str = field(default="", metadata={
+        "desc": "Custom logo filename (SVG or PNG) vendored under docs/images/logos/",
+    })
+    logo_dark: str = field(default="", metadata={
+        "desc": "Custom dark mode logo filename (SVG or PNG) vendored under docs/images/logos/",
+    })
     notes: str = field(default="", metadata={
         "desc": (
             "Free-form Markdown shown in the generated README as a Notes section. "
@@ -522,9 +528,23 @@ def _parse_deprecated(meta: dict[str, Any]) -> DeprecationInfo | None:
     return DeprecationInfo()
 
 
-def _parse_metadata(data: dict[str, Any], app_name: str) -> Metadata:
+def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = None) -> Metadata:
     """Parse the ``x-daemonless:`` section of the config file."""
     meta = data.get("x-daemonless", {})
+    logo = meta.get("logo", "")
+    if not logo and base:
+        for ext in [".svg", ".png"]:
+            if (base / ".daemonless" / f"logo{ext}").is_file():
+                logo = f"{app_name}{ext}"
+                break
+
+    logo_dark = meta.get("logo_dark", "")
+    if not logo_dark and base:
+        for ext in [".svg", ".png"]:
+            if (base / ".daemonless" / f"logo-dark{ext}").is_file():
+                logo_dark = f"{app_name}-dark{ext}"
+                break
+
     return Metadata(
         title=meta.get("title", app_name.title()),
         description=meta.get("description", ""),
@@ -535,6 +555,8 @@ def _parse_metadata(data: dict[str, Any], app_name: str) -> Metadata:
         user=meta.get("user", "bsd"),
         upstream_binary=meta.get("upstream_binary", True),
         icon=meta.get("icon", ":material-docker:"),
+        logo=logo,
+        logo_dark=logo_dark,
         notes=meta.get("notes", ""),
         community=meta.get("community", ""),
         appjail=_parse_appjail(meta),
@@ -728,7 +750,7 @@ def load(base: Path | None = None) -> Config:
     test = _parse_test_config(local_data, compose_data)
 
     # Metadata (Prioritize x-daemonless in compose.yaml)
-    metadata = _parse_metadata(compose_data or local_data, image_name)
+    metadata = _parse_metadata(compose_data or local_data, image_name, base)
 
     # Service data (Env, Volumes, Ports)
     env, volumes, ports = _parse_service_data(local_data, compose_data)

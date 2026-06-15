@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-06-10" "dbuild 1.9.0" "User Commands"
+.TH DBUILD 1 "2026-06-14" "dbuild 1.9.0" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -158,6 +158,17 @@ Check compose.yaml and .daemonless/config.yaml for correctness. Lints the curren
 .TP
 \fB-h\fR, \fB--help\fR
 show this help message and exit
+.RE
+.TP
+\fBlogo\fR
+Download or copy an app logo to .daemonless/logo.<ext> (SVG or PNG). Accepts a URL or a local file path. Uses 'file --mime-type' to detect the format and extension. Logo files should ideally be square (1:1) and under 150 KB.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--dark\fR
+save as the dark mode variant (logo-dark.<ext>)
 .RE
 .TP
 \fBmanifest\fR

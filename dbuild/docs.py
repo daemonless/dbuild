@@ -283,6 +283,8 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "annotations": annotations,
         "upstream_binary": meta.upstream_binary,
         "icon": meta.icon,
+        "logo": meta.logo,
+        "logo_dark": meta.logo_dark,
         "healthcheck": meta.healthcheck,
         "notes": meta.notes,
         "community": community_raw,
