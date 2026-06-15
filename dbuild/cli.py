@@ -327,7 +327,8 @@ def _make_parser() -> argparse.ArgumentParser:
             "Download or copy an app logo to .daemonless/logo.<ext> (SVG or PNG). "
             "Accepts a URL or a local file path. "
             "Uses 'file --mime-type' to detect the format and extension. "
-            "Logo files should ideally be square (1:1) and under 150 KB."
+            "Logo files should ideally be square (1:1) and under 150 KB. "
+            "https://dashboardicons.com/ is a good source for app logos."
         ),
     )
     logo_parser.add_argument(

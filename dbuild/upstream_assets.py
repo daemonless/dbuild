@@ -7,6 +7,7 @@ into .daemonless/logo.<ext>.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import os
 import shutil
@@ -32,6 +33,41 @@ _SCREENSHOT_MIME_EXT: dict[str, str] = {
     "video/quicktime": ".mov",
 }
 _SCREENSHOT_MIN_ASPECT_RATIO = 0.5
+_SCREENSHOT_MAX_SIZE = 1024 * 1024  # 1 MB
+
+
+def _load_asset_meta(path: str, ext: str) -> tuple[int, tuple[float, float] | None]:
+    """Helper to retrieve size and dimensions for an asset file."""
+    size = 0
+    with contextlib.suppress(OSError):
+        size = os.path.getsize(path)
+    dims = image_dimensions(path, ext)
+    return size, dims
+
+
+def screenshot_warnings(path: str, ext: str) -> list[str]:
+    """Advisory warnings about a screenshot file (size, aspect ratio).
+
+    Shared by `dbuild screenshot` and `dbuild lint` so both flag the same issues.
+    """
+    out: list[str] = []
+    size, dims = _load_asset_meta(path, ext)
+    if size > _SCREENSHOT_MAX_SIZE:
+        out.append(
+            f"screenshot is {size / (1024 * 1024):.1f} MB (>1 MB) — "
+            "optimize/compress to avoid repo bloat"
+        )
+
+    if ext.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".bmp", ".tiff") and dims:
+        w, h = dims
+        if h > 0:
+            ratio = w / h
+            if ratio < _SCREENSHOT_MIN_ASPECT_RATIO:
+                out.append(
+                    f"screenshot is very tall: {w:.0f}x{h:.0f} (w/h {ratio:.2f}) — "
+                    "prefer wider-than-tall (landscape) captures for the gallery"
+                )
+    return out
 
 
 # --- Logos Configuration ---
@@ -39,8 +75,34 @@ _LOGO_MIME_EXT: dict[str, str] = {
     "image/svg+xml":  ".svg",
     "image/png":      ".png",
 }
-_LOGO_MIN_ASPECT_RATIO = 0.95
-_LOGO_MAX_ASPECT_RATIO = 1.05
+_LOGO_MIN_ASPECT_RATIO = 0.8
+_LOGO_MAX_ASPECT_RATIO = 1.25
+_LOGO_MAX_SIZE = 150 * 1024  # bytes
+
+
+def logo_warnings(path: str, ext: str) -> list[str]:
+    """Advisory warnings about a logo file (size, aspect ratio).
+
+    Shared by `dbuild logo` and `dbuild lint` so both flag the same issues.
+    """
+    out: list[str] = []
+    size, dims = _load_asset_meta(path, ext)
+    if size > _LOGO_MAX_SIZE:
+        out.append(
+            f"logo is {size / 1024:.1f} KB (>150 KB) — "
+            "optimize/compress to avoid repo bloat"
+        )
+
+    if dims:
+        w, h = dims
+        if w > 0 and h > 0:
+            ratio = w / h
+            if ratio < _LOGO_MIN_ASPECT_RATIO or ratio > _LOGO_MAX_ASPECT_RATIO:
+                out.append(
+                    f"logo is non-square: {w:.0f}x{h:.0f} (w/h {ratio:.2f}) — "
+                    "logos ideally should be 1:1"
+                )
+    return out
 
 
 # --- Shared Helpers ---
@@ -98,16 +160,8 @@ def download_screenshot(url: str, repo_dir: Path | None = None) -> int:
         ext = ".png"
     log.info(f"Detected type: {mime} → {ext}")
 
-    if mime.startswith("image/"):
-        dims = image_dimensions(tmp_path, ext)
-        if dims:
-            w, h = dims
-            if h > 0 and w / h < _SCREENSHOT_MIN_ASPECT_RATIO:
-                log.warn(
-                    f"Image is very tall: {w}x{h} (w/h {w / h:.2f}). "
-                    "It will look bad next to landscape screenshots in the "
-                    "gallery — prefer a wider-than-tall capture if you can."
-                )
+    for msg in screenshot_warnings(tmp_path, ext):
+        log.warn(msg)
 
     digest = _sha256(tmp_path)
     log.info(f"SHA-256: {digest[:16]}...")
@@ -175,33 +229,8 @@ def process_logo(source: str, repo_dir: Path | None = None, dark: bool = False) 
         return 1
     log.info(f"Detected type: {mime} → {ext}")
 
-    try:
-        file_size = os.path.getsize(src_path)
-        if file_size > 150 * 1024:
-            log.warn(
-                f"Logo file is quite large: {file_size / 1024:.1f} KB. "
-                "Logo files should ideally be under 150 KB to avoid repository bloat. "
-                "Consider optimizing/compressing it."
-            )
-    except Exception:
-        pass
-
-    dims = image_dimensions(src_path, ext)
-    w, h = 0.0, 0.0
-    if dims:
-        w, h = dims
-
-    if w > 0 and h > 0:
-        ratio = w / h
-        if ratio < _LOGO_MIN_ASPECT_RATIO or ratio > _LOGO_MAX_ASPECT_RATIO:
-            log.warn(
-                f"Logo aspect ratio is non-square: {w:.1f}x{h:.1f} (w/h {ratio:.2f}). "
-                "Logos should ideally be square (1:1)."
-            )
-        else:
-            log.info(f"Logo dimensions validated: {w:.1f}x{h:.1f} (square ratio)")
-    else:
-        log.info("Could not extract logo dimensions (skipping aspect ratio validation)")
+    for msg in logo_warnings(src_path, ext):
+        log.warn(msg)
 
     logo_dir.mkdir(parents=True, exist_ok=True)
 

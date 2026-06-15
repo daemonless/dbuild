@@ -103,6 +103,50 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                 errors.append(f"Invalid icon format '{icon}'. Should be :icon-name:")
 
             if verbose:
+                print("  checking logo")
+            from dbuild import upstream_assets
+            logo_file = next(
+                (repo_path / ".daemonless" / f"logo{ext}"
+                 for ext in (".svg", ".png")
+                 if (repo_path / ".daemonless" / f"logo{ext}").is_file()),
+                None,
+            )
+            if logo_file is None:
+                if not meta.get("logo") and not is_deprecated:
+                    warnings.append(
+                        "No logo file found (.daemonless/logo.svg or logo.png)."
+                        " Add one with 'dbuild logo <url>'."
+                    )
+            else:
+                for msg in upstream_assets.logo_warnings(
+                    str(logo_file), logo_file.suffix
+                ):
+                    warnings.append(f".daemonless/{logo_file.name}: {msg}")
+
+            if verbose:
+                print("  checking screenshots")
+            screenshots_dir = repo_path / ".daemonless" / "screenshots"
+            if screenshots_dir.is_dir():
+                for screenshot_file in sorted(screenshots_dir.iterdir()):
+                    if screenshot_file.is_file():
+                        for msg in upstream_assets.screenshot_warnings(
+                            str(screenshot_file), screenshot_file.suffix
+                        ):
+                            warnings.append(
+                                f".daemonless/screenshots/{screenshot_file.name}: {msg}"
+                            )
+
+            if verbose:
+                print("  checking upstream url")
+            upstream_url = meta.get("upstream_url", "")
+            if "daemonless/" in upstream_url:
+                warnings.append(
+                    f"x-daemonless.upstream_url points to the daemonless org"
+                    f" ({upstream_url}) — the Source link should point to the"
+                    f" real upstream project, not our mirror."
+                )
+
+            if verbose:
                 print("  checking env docs")
             docs = meta.get("docs", {})
             services = data.get("services", {})

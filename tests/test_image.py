@@ -185,3 +185,117 @@ class TestImageDimensions(unittest.TestCase):
     def test_svg_invalid(self):
         path = self._write_temp("not an svg tag at all")
         self.assertIsNone(image_dimensions(path, ".svg"))
+
+
+class TestUpstreamAssetWarnings(unittest.TestCase):
+    """Tests for logo_warnings() and screenshot_warnings() in upstream_assets."""
+
+    def setUp(self):
+        self.temp_files: list[str] = []
+
+    def tearDown(self):
+        for path in self.temp_files:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+
+    def _write_temp(self, data: bytes | str) -> str:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            if isinstance(data, str):
+                tf.write(data.encode("utf-8"))
+            else:
+                tf.write(data)
+            path = tf.name
+        self.temp_files.append(path)
+        return path
+
+    def test_logo_warnings_valid(self):
+        # 100x100 png, 24 bytes (well under 150 KB)
+        png_data = (
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\x0dIHDR"
+            b"\x00\x00\x00\x64"
+            b"\x00\x00\x00\x64"
+        )
+        path = self._write_temp(png_data)
+        from dbuild.upstream_assets import logo_warnings
+        warnings = logo_warnings(path, ".png")
+        self.assertEqual(warnings, [])
+
+    def test_logo_warnings_oversized(self):
+        # 100x100 png but padded to > 150 KB
+        png_data = (
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\x0dIHDR"
+            b"\x00\x00\x00\x64"
+            b"\x00\x00\x00\x64"
+            + b"\x00" * (151 * 1024)
+        )
+        path = self._write_temp(png_data)
+        from dbuild.upstream_assets import logo_warnings
+        warnings = logo_warnings(path, ".png")
+        self.assertTrue(any(">150 KB" in w for w in warnings))
+
+    def test_logo_warnings_non_square(self):
+        # 100x200 png, 24 bytes
+        png_data = (
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\x0dIHDR"
+            b"\x00\x00\x00\x64"
+            b"\x00\x00\x00\xc8"
+        )
+        path = self._write_temp(png_data)
+        from dbuild.upstream_assets import logo_warnings
+        warnings = logo_warnings(path, ".png")
+        self.assertTrue(any("non-square" in w for w in warnings))
+
+    def test_logo_warnings_close_to_square(self):
+        # 100x120 png (ratio 0.833, within new 0.8 - 1.25 range)
+        png_data = (
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\x0dIHDR"
+            b"\x00\x00\x00\x64"
+            b"\x00\x00\x00\x78"
+        )
+        path = self._write_temp(png_data)
+        from dbuild.upstream_assets import logo_warnings
+        warnings = logo_warnings(path, ".png")
+        self.assertEqual(warnings, [])
+
+
+    def test_screenshot_warnings_valid(self):
+        # 800x600 jpeg, 24 bytes
+        jpeg_data = (
+            b"\xff\xd8"
+            b"\xff\xe0\x00\x10" + b"\x00" * 14 +
+            b"\xff\xc0\x00\x0b\x08\x02\x58\x03\x20"
+        )
+        path = self._write_temp(jpeg_data)
+        from dbuild.upstream_assets import screenshot_warnings
+        warnings = screenshot_warnings(path, ".jpg")
+        self.assertEqual(warnings, [])
+
+    def test_screenshot_warnings_too_tall(self):
+        # 100x300 jpeg (ratio 0.33 < 0.5)
+        jpeg_data = (
+            b"\xff\xd8"
+            b"\xff\xe0\x00\x10" + b"\x00" * 14 +
+            b"\xff\xc0\x00\x0b\x08\x01\x2c\x00\x64"
+        )
+        path = self._write_temp(jpeg_data)
+        from dbuild.upstream_assets import screenshot_warnings
+        warnings = screenshot_warnings(path, ".jpg")
+        self.assertTrue(any("very tall" in w for w in warnings))
+
+    def test_screenshot_warnings_oversized(self):
+        # 800x600 jpeg but padded to > 1 MB
+        jpeg_data = (
+            b"\xff\xd8"
+            b"\xff\xe0\x00\x10" + b"\x00" * 14 +
+            b"\xff\xc0\x00\x0b\x08\x02\x58\x03\x20"
+            + b"\x00" * (1025 * 1024)
+        )
+        path = self._write_temp(jpeg_data)
+        from dbuild.upstream_assets import screenshot_warnings
+        warnings = screenshot_warnings(path, ".jpg")
+        self.assertTrue(any(">1 MB" in w for w in warnings))
+
