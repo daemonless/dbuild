@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import uuid
 from typing import Any
 
 from dbuild import log
@@ -367,8 +368,15 @@ def compose_logs(compose_file: str, tail: int = 20) -> str:
 # ── Buildah commands ──────────────────────────────────────────────────
 
 def bah_from(image: str) -> str:
-    """Create a working container from *image*.  Returns container ID."""
-    result = _run(["buildah", "from", "--pull=never", image])
+    """Create a working container from *image*.  Returns container name.
+
+    A unique ``--name`` is supplied so concurrent calls don't collide: by
+    default buildah derives the name from the image basename, so parallel
+    variant builds (all sharing e.g. ``postgres``) would otherwise fight over
+    a single ``postgres-working-container`` and clobber each other's rm/commit.
+    """
+    name = f"dbuild-wc-{uuid.uuid4().hex[:12]}"
+    result = _run(["buildah", "from", "--pull=never", "--name", name, image])
     return result.stdout.strip()
 
 
