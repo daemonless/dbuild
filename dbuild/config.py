@@ -89,7 +89,9 @@ class AppTestConfig:
     """CIT test configuration."""
 
     mode: str = field(default="", metadata={
-        "desc": "Test mode: `shell`, `port`, `health`, or `screenshot`. Auto-detected if omitted.",
+        "desc": "Test mode: `shell`, `port`, `health`, `screenshot`, or `command` "
+                "(one-shot CLI/tool: run to completion, check exit code). "
+                "Auto-detected if omitted.",
         "display_default": "(auto)",
     })
     port: int | None = field(default=None, metadata={
@@ -129,6 +131,18 @@ class AppTestConfig:
         "desc": "Paths under /config (find -path globs) allowed to stay "
                 "non-PUID-owned, e.g. root-owned sshd host keys. The PUID "
                 "ownership check prunes these.",
+    })
+    command: list[str] = field(default_factory=list, metadata={
+        "desc": "For `command` mode: args appended to the image entrypoint "
+                "(empty = the image's default CMD).",
+        "display_default": "[]",
+    })
+    expect_exit: int = field(default=0, metadata={
+        "desc": "For `command` mode: the exit code that counts as success.",
+    })
+    expect_output: str | None = field(default=None, metadata={
+        "desc": "For `command` mode: a regex that must match the container's "
+                "combined stdout/stderr (e.g. a version string).",
     })
     annotations: list[str] = field(default_factory=list)
 
@@ -585,6 +599,9 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
     compose = cit.get("compose", False)
     puid = cit.get("puid", True)
     puid_ignore = cit.get("puid_ignore") or []
+    command = cit.get("command") or []
+    expect_exit = cit.get("expect_exit", 0)
+    expect_output = cit.get("expect_output")
     annotations = []
 
     # 2. Merge annotations from cit: section
@@ -649,6 +666,9 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
         compose=compose,
         puid=puid,
         puid_ignore=puid_ignore,
+        command=command,
+        expect_exit=expect_exit,
+        expect_output=expect_output,
         annotations=annotations,
     )
 

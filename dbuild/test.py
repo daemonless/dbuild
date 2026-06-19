@@ -285,6 +285,35 @@ def _test_shell(cname: str, *, backend: ContainerBackend) -> bool:
     return True
 
 
+def _test_command(
+    image_ref: str,
+    test: AppTestConfig,
+    *,
+    annotations: dict[str, str],
+) -> bool:
+    """Run a one-shot image to completion; check exit code (+ optional regex).
+
+    For CLI/tool images whose entrypoint runs once and exits — there is no
+    long-lived process for shell/port/health/screenshot to probe.
+    """
+    desc = " ".join(test.command) if test.command else "(image default CMD)"
+    log.info(f"Command mode: running entrypoint with {desc}")
+    rc, output = podman.run_oneshot(image_ref, test.command, annotations=annotations)
+    for line in output.splitlines()[-20:]:
+        log.info(f"  {line}")
+    log.info(f"Exit code: {rc} (expected {test.expect_exit})")
+    if rc != test.expect_exit:
+        log.error(f"Exit code {rc} != expected {test.expect_exit}")
+        return False
+    if test.expect_output and not re.search(test.expect_output, output):
+        log.error(f"Output did not match /{test.expect_output}/")
+        return False
+    if test.expect_output:
+        log.info(f"Output matched /{test.expect_output}/")
+    log.success("Command test passed")
+    return True
+
+
 def _test_port(ip: str, port: int, timeout: int) -> bool:
     """Wait for a TCP port to be listening using stdlib socket."""
     log.info(f"Waiting for {ip}:{port} (timeout: {timeout}s)")
@@ -662,6 +691,30 @@ def _test_variant(
     if out is not None:
         out["mode"] = mode
     log.info(f"Mode: {mode}")
+
+    # === COMMAND MODE — one-shot tools (run to completion, no live process) ===
+    # CLI/tool images whose entrypoint runs once and exits have nothing for
+    # shell/port/health/screenshot to probe.  Run the image to completion and
+    # assert the exit code (and an optional output regex) instead.  Bypasses
+    # the detached-start lifecycle below.
+    if mode == "command":
+        if compose_mode:
+            log.error("command mode does not support compose: true")
+            return 1
+        if force_backend == "appjail":
+            log.error("command mode is podman-only (it runs the image to completion)")
+            return 1
+        cmd_results = {"command": "skip"}
+        passed = _test_command(build_ref, test, annotations=annotations)
+        cmd_results["command"] = "pass" if passed else "fail"
+        if out is not None:
+            out.update(cmd_results)
+        if json_output:
+            _write_json_result(json_output, build_ref, "command", cmd_results, passed)
+        if passed:
+            log.success(f":{variant.tag} passed CIT (command)")
+            return 0
+        return 1
 
     # Fill in defaults for modes that need port/health
     if mode in ("port", "health", "screenshot"):

@@ -233,6 +233,28 @@ def run_detached(
     return result.stdout.strip()
 
 
+def run_oneshot(
+    image: str,
+    command: list[str] | None = None,
+    *,
+    annotations: dict[str, str] | None = None,
+) -> tuple[int, str]:
+    """Run a one-shot container to completion and return ``(rc, output)``.
+
+    Runs the image's entrypoint (optionally with *command* appended) under
+    ``--rm`` and waits for it to exit.  Used by ``command``-mode CIT for
+    CLI/tool images that run once and exit rather than staying up.  *output*
+    is stdout and stderr combined.  Does not raise on a non-zero exit.
+    """
+    cmd = ["podman", "run", "--rm"]
+    for key, val in (annotations or {}).items():
+        cmd += ["--annotation", f"{key}={val}"]
+    cmd.append(image)
+    cmd += list(command or [])
+    result = _run(cmd, check=False)
+    return result.returncode, (result.stdout or "") + (result.stderr or "")
+
+
 def inspect_labels(image_ref: str) -> dict[str, str]:
     """Return all labels from an image."""
     result = _run(

@@ -125,7 +125,7 @@ build:
 
 # Container integration test configuration
 cit:
-  mode: health                      # shell | port | health | screenshot
+  mode: health                      # shell | port | health | screenshot | command
   port: 8080
   health: /api/health               # health endpoint path
   wait: 120                         # startup timeout (seconds)
@@ -136,6 +136,18 @@ cit:
   compose: false                    # use podman-compose for testing
   annotations:                      # container annotations for testing
     - "org.freebsd.jail.allow.mlock=true"
+```
+
+`command` mode is for one-shot CLI/tool images (no long-lived service to
+probe). It runs the image to completion and asserts the exit code, plus an
+optional output regex:
+
+```yaml
+cit:
+  mode: command
+  command: ["--version"]            # args after the entrypoint (omit = image CMD)
+  expect_exit: 0                    # exit code that means success (default 0)
+  expect_output: "2\\.7\\.5"        # regex that must match stdout/stderr
 ```
 
 ## Commands

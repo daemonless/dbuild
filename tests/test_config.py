@@ -193,6 +193,28 @@ class TestParseTestConfig(unittest.TestCase):
         self.assertFalse(result.compose)
         self.assertEqual(result.annotations, [])
 
+    def test_command_mode(self):
+        data = {
+            "cit": {
+                "mode": "command",
+                "command": ["--version"],
+                "expect_exit": 0,
+                "expect_output": r"2\.7\.5",
+            }
+        }
+        result = _parse_test_config(data)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.mode, "command")
+        self.assertEqual(result.command, ["--version"])
+        self.assertEqual(result.expect_exit, 0)
+        self.assertEqual(result.expect_output, r"2\.7\.5")
+
+    def test_command_mode_defaults(self):
+        result = _parse_test_config({"cit": {"mode": "command"}})
+        self.assertEqual(result.command, [])
+        self.assertEqual(result.expect_exit, 0)
+        self.assertIsNone(result.expect_output)
+
 
 class TestParseVariants(unittest.TestCase):
     """Tests for _parse_variants()."""

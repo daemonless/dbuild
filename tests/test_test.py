@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dbuild import test as cit
+from dbuild.config import AppTestConfig
 
 
 class TestReadLabels(unittest.TestCase):
@@ -269,6 +270,35 @@ class TestTestPort(unittest.TestCase):
         # Use a port that's almost certainly not listening
         result = cit._test_port("127.0.0.1", 19, timeout=2)
         self.assertFalse(result)
+
+
+class TestTestCommand(unittest.TestCase):
+    """Tests for _test_command() (one-shot 'command' mode)."""
+
+    def test_pass_exit_and_output(self):
+        test = AppTestConfig(mode="command", expect_output=r"2\.7\.5")
+        with patch("dbuild.test.podman.run_oneshot", return_value=(0, "immich 2.7.5\n")):
+            self.assertTrue(cit._test_command("img", test, annotations={}))
+
+    def test_fail_on_exit_code(self):
+        test = AppTestConfig(mode="command", expect_exit=0)
+        with patch("dbuild.test.podman.run_oneshot", return_value=(1, "boom")):
+            self.assertFalse(cit._test_command("img", test, annotations={}))
+
+    def test_fail_on_output_regex(self):
+        test = AppTestConfig(mode="command", expect_output=r"2\.7\.5")
+        with patch("dbuild.test.podman.run_oneshot", return_value=(0, "9.9.9")):
+            self.assertFalse(cit._test_command("img", test, annotations={}))
+
+    def test_exit_only_no_regex(self):
+        test = AppTestConfig(mode="command", expect_exit=0)
+        with patch("dbuild.test.podman.run_oneshot", return_value=(0, "anything")):
+            self.assertTrue(cit._test_command("img", test, annotations={}))
+
+    def test_custom_expect_exit(self):
+        test = AppTestConfig(mode="command", expect_exit=2)
+        with patch("dbuild.test.podman.run_oneshot", return_value=(2, "usage")):
+            self.assertTrue(cit._test_command("img", test, annotations={}))
 
 
 class TestTestHealth(unittest.TestCase):
