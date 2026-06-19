@@ -89,8 +89,7 @@ class AppTestConfig:
     """CIT test configuration."""
 
     mode: str = field(default="", metadata={
-        "desc": "Test mode: `shell`, `port`, `health`, `screenshot`, or `command` "
-                "(one-shot CLI/tool: run to completion, check exit code). "
+        "desc": "Test mode: `shell`, `port`, `health`, `screenshot`, or `command`"
                 "Auto-detected if omitted.",
         "display_default": "(auto)",
     })
