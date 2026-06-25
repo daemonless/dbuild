@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -297,6 +298,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "logo_dark": meta.logo_dark,
         "healthcheck": meta.healthcheck,
         "notes": meta.notes,
+        "readme": meta.readme,
         "community": community_raw,
         "community_name": community_name,
         "community_url": community_url,
@@ -333,6 +335,16 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
 
     # Environment
     env_docs = {str(k): v for k, v in docs.get("env", {}).items()}
+
+    # Ensure any explicitly documented env vars are included (critical for stacks)
+    existing_env_names = {str(e["name"]) for e in cfg.env}
+    for k, v in env_docs.items():
+        if k not in existing_env_names:
+            if isinstance(v, dict):
+                cfg.env.append({"name": k, "default": str(v.get("default", ""))})
+            else:
+                cfg.env.append({"name": k, "default": ""})
+
     for e in cfg.env:
         name = e["name"]
         val = e["default"]
@@ -341,7 +353,12 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         if not display_val and any(x in name.upper() for x in ["PASS", "KEY", "SECRET", "TOKEN"]):
             display_val = f"<{name.upper()}>"
 
-        item = {"name": name, "default": display_val, "desc": env_docs.get(str(name), "")}
+        desc = env_docs.get(str(name), "")
+        if isinstance(desc, dict):
+            display_val = display_val or str(desc.get("default", ""))
+            desc = desc.get("desc", "")
+
+        item = {"name": name, "default": display_val, "desc": desc}
         if name in ["PUID", "PGID", "TZ"]:
             item["placeholder"] = f"@{name}@"
         context["env"].append(item)
@@ -461,6 +478,83 @@ def generate_appjail_files(
     return dest_dir
 
 
+def _readme_generation_mode(cfg: Config, base: Path) -> str:
+    """Decide how README.md generation should behave.
+
+    Returns one of:
+
+    - ``"generate"``: render README.md from the bundled/override template.
+    - ``"manual-override"``: ``docs: manual`` but a local ``README.j2`` exists,
+      so it is still rendered (just from the repo override).
+    - ``"skip"``: ``docs: manual`` with no local ``README.j2`` — README.md is
+      hand-maintained and must not be generated or drift-checked.
+    """
+    is_manual = (cfg.metadata.docs == "manual" or
+                 (isinstance(cfg.metadata.docs, dict) and cfg.metadata.docs.get("manual", False)))
+    has_local_readme_j2 = (base / "README.j2").exists()
+    if is_manual and not has_local_readme_j2:
+        return "skip"
+    if is_manual and has_local_readme_j2:
+        return "manual-override"
+    return "generate"
+
+
+def render_generated(
+    cfg: Config,
+    args: argparse.Namespace,
+    base: Path | None = None,
+) -> tuple[dict[str, str], list[str]]:
+    """Render the artifacts ``dbuild generate`` would write, in memory.
+
+    This is the shared rendering core used by both :func:`run` (which writes
+    the files) and the ``dbuild lint --check-generated`` drift check (which
+    compares them to disk). Keeping a single code path guarantees the check
+    reflects exactly what generation produces.
+
+    Returns ``(outputs, errors)`` where *outputs* maps each output filename to
+    its full file content (header included, matching what would be written) and
+    *errors* lists per-file render failures. Only files that generation would
+    actually write are present in *outputs* (e.g. a ``docs: manual`` image with
+    no ``README.j2`` yields no ``README.md`` entry).
+    """
+    base = base or Path.cwd()
+    outputs: dict[str, str] = {}
+    errors: list[str] = []
+
+    if jinja2 is None:
+        return outputs, ["jinja2 is not installed"]
+
+    community_override = getattr(args, "community", None)
+    context = _enrich_metadata(cfg, community_override)
+
+    env = _get_jinja_env(base)
+    if env is None:
+        return outputs, ["could not find dbuild templates"]
+
+    # README.md — uses the ChoiceLoader so the bundled template is a fallback.
+    if _readme_generation_mode(cfg, base) != "skip":
+        try:
+            template = env.get_template("README.j2")
+            outputs["README.md"] = template.render(context, render_mode="github")
+        except jinja2.TemplateNotFound:
+            # Matches run(): warn + skip; README.md is left untouched.
+            pass
+
+    # Containerfiles — repo-only loader (local includes, no bundled fallback).
+    for j2_path in sorted(base.glob("Containerfile*.j2")):
+        out_name = j2_path.name.replace(".j2", "")
+        try:
+            repo_env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(base)))
+            template = repo_env.get_template(j2_path.name)
+            outputs[out_name] = (
+                HEADER_TEMPLATE.format(source=j2_path.name) + template.render(context)
+            )
+        except Exception as e:
+            errors.append(f"Failed to render {out_name}: {e}")
+
+    return outputs, errors
+
+
 def run(cfg: Config, args: argparse.Namespace) -> int:
     """Generate documentation and Containerfiles."""
     if jinja2 is None:
@@ -469,8 +563,6 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         return 1
 
     base = Path.cwd()
-    community_override = getattr(args, "community", None)
-    context = _enrich_metadata(cfg, community_override)
 
     if cfg.metadata.deprecated is not None:
         dep = cfg.metadata.deprecated
@@ -484,36 +576,140 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         log.error("Could not find dbuild templates.")
         return 1
 
-    # 1. Generate README.md (if docs: manual isn't set, or if a local README.j2 exists)
-    is_manual = (cfg.metadata.docs == "manual" or
-                 (isinstance(cfg.metadata.docs, dict) and cfg.metadata.docs.get("manual", False)))
-    has_local_readme_j2 = (base / "README.j2").exists()
-
-    if is_manual and not has_local_readme_j2:
+    readme_mode = _readme_generation_mode(cfg, base)
+    if readme_mode == "skip":
         log.info("Skipping README.md generation (docs: manual)")
-    else:
-        if is_manual and has_local_readme_j2:
-            log.info("docs: manual — using local README.j2 override")
-        try:
-            template = env.get_template("README.j2")
-            content = template.render(context, render_mode="github")
-            (base / "README.md").write_text(content)
-            log.step("Generated README.md")
-        except jinja2.TemplateNotFound:
-            log.warn("README.j2 template not found, skipping README.md")
+    elif readme_mode == "manual-override":
+        log.info("docs: manual — using local README.j2 override")
 
-    # 2. Generate Containerfiles from .j2 templates
-    for j2_path in base.glob("Containerfile*.j2"):
-        out_name = j2_path.name.replace(".j2", "")
-        try:
-            # We use a separate env for local repo files to allow including local templates
-            repo_env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(base)))
-            template = repo_env.get_template(j2_path.name)
+    outputs, errors = render_generated(cfg, args, base)
 
-            content = HEADER_TEMPLATE.format(source=j2_path.name) + template.render(context)
-            (base / out_name).write_text(content)
-            log.step(f"Generated {out_name}")
-        except Exception as e:
-            log.error(f"Failed to generate {out_name}: {e}")
+    if readme_mode != "skip" and "README.md" not in outputs:
+        log.warn("README.j2 template not found, skipping README.md")
 
+    for name, content in outputs.items():
+        (base / name).write_text(content)
+        log.step(f"Generated {name}")
+    for err in errors:
+        log.error(err)
+
+    return 0
+
+
+# ── Drift check (generate --check) ────────────────────────────────────
+
+def _is_image_repo(path: Path) -> bool:
+    return (path / "compose.yaml").exists() or (path / ".daemonless" / "config.yaml").exists()
+
+
+def check_repo(repo_path: Path) -> tuple[list[str], list[str]]:
+    """Compare a repo's on-disk generated artifacts against a fresh render.
+
+    Re-renders ``README.md`` and ``Containerfile*`` through the same code path
+    as generation (:func:`render_generated`) and compares the result to what is
+    committed on disk. This catches the common case of a ``.j2`` template being
+    edited without re-running ``dbuild generate``.
+
+    Returns ``(stale, notes)``:
+
+    - *stale*: files that are missing or differ from a fresh render. Each
+      message includes the fix (``run dbuild generate``).
+    - *notes*: informational messages (e.g. README check skipped because the
+      registry could not be resolved locally — see below).
+
+    ``Containerfile*`` outputs use a literal ``FROM`` registry, so they are
+    deterministic regardless of where the check runs. ``README.md`` embeds the
+    registry derived from the git remote (or ``DBUILD_REGISTRY``); when neither
+    is available the rendered registry would differ from the committed file, so
+    the README comparison is skipped rather than reported as a false positive.
+    """
+    from dbuild import config as _config
+
+    stale: list[str] = []
+    notes: list[str] = []
+
+    has_templates = (
+        any(repo_path.glob("Containerfile*.j2"))
+        or (repo_path / "README.j2").exists()
+    )
+    if not has_templates:
+        return stale, notes
+
+    cwd = Path.cwd()
+    try:
+        # _enrich_metadata reads Path.cwd() (base version, screenshots), so
+        # render from inside the repo and always restore the original cwd.
+        os.chdir(repo_path)
+        cfg = _config.load(repo_path)
+        args_ns = argparse.Namespace(community=None)
+        outputs, render_errors = render_generated(cfg, args_ns, repo_path)
+
+        stale.extend(render_errors)
+
+        registry_confident = bool(
+            os.environ.get("DBUILD_REGISTRY") or _config._git_remote_org()
+        )
+
+        for name, content in outputs.items():
+            if name == "README.md" and not registry_confident:
+                notes.append(
+                    "README.md drift check skipped: registry unresolved"
+                    " (no git remote / DBUILD_REGISTRY) — verify on CI/saturn"
+                )
+                continue
+            dest = repo_path / name
+            if not dest.exists():
+                stale.append(f"{name} is missing — run dbuild generate")
+            elif dest.read_text() != content:
+                stale.append(f"{name} is out of date — run dbuild generate")
+    except Exception as e:  # one bad repo must not abort the sweep
+        stale.append(f"could not render generated files: {e}")
+    finally:
+        os.chdir(cwd)
+
+    return stale, notes
+
+
+def run_check(args: argparse.Namespace) -> int:
+    """``dbuild generate --check``: fail if committed generated files are stale.
+
+    Checks the current repo if run from an image directory, or every
+    subdirectory if run from a workspace root (mirroring ``dbuild lint``).
+    """
+    cwd = Path.cwd()
+    repos = [cwd] if _is_image_repo(cwd) else sorted(
+        p for p in cwd.iterdir() if p.is_dir()
+    )
+
+    all_stale: dict[str, list[str]] = {}
+    readme_skipped = 0
+    for repo in repos:
+        stale, notes = check_repo(repo)
+        if stale:
+            all_stale[repo.name] = stale
+        if any("README" in n for n in notes):
+            readme_skipped += 1
+
+    if readme_skipped:
+        log.info(
+            f"README.md drift check skipped for {readme_skipped}"
+            f" repo{'s' if readme_skipped != 1 else ''}"
+            " (registry unresolved locally; verify on CI/saturn)."
+        )
+
+    if all_stale:
+        print("\nOUT OF DATE:")
+        print("=" * 60)
+        for name, items in sorted(all_stale.items()):
+            print(f"\n{name}:")
+            for item in items:
+                print(f"  - {item}")
+        n = len(all_stale)
+        print(
+            f"\n{n} repo{'s' if n != 1 else ''} out of date"
+            " — run 'dbuild generate' to update"
+        )
+        return 1
+
+    print("All generated files are up to date")
     return 0

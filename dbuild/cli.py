@@ -222,6 +222,15 @@ def _make_parser() -> argparse.ArgumentParser:
         metavar="NAME:URL",
         help="override community help link (e.g. Discord:https://...)",
     )
+    generate_parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "don't write; fail if committed README.md/Containerfile* differ "
+            "from a fresh render (a .j2 was edited without running generate). "
+            "Checks the current repo, or every subdir from a workspace root."
+        ),
+    )
 
     # -- init --
     init_parser = sub.add_parser(
@@ -494,6 +503,8 @@ def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
 def _dispatch_docs(cfg: Config, args: argparse.Namespace) -> int:
     """Run the docs subcommand."""
     from dbuild import docs
+    if getattr(args, "check", False):
+        return docs.run_check(args)
     rc = docs.run(cfg, args)
     return rc if rc else 0
 

@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-06-23" "dbuild 1.9.2" "User Commands"
+.TH DBUILD 1 "2026-06-25" "dbuild 1.9.3" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -101,6 +101,9 @@ show this help message and exit
 .TP
 \fB--community\fR
 override community help link (e.g. Discord:https://...)
+.TP
+\fB--check\fR
+don't write; fail if committed README.md/Containerfile* differ from a fresh render (a .j2 was edited without running generate). Checks the current repo, or every subdir from a workspace root.
 .RE
 .TP
 \fBhelp\fR
@@ -269,9 +272,6 @@ Authentication token for GitHub Packages and build secrets.
 .TP
 \fIGITHUB_ACTOR\fR
 The username associated with GITHUB_TOKEN.
-.TP
-\fIPORTSDIR\fR
-Location of the ports tree. This is /usr/ports by default.
 .TP
 \fIDOCKERHUB_USERNAME\fR
 Enable mirroring by providing a Docker Hub username.

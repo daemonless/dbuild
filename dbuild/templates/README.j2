@@ -250,6 +250,11 @@ Source: dbuild templates
 {%- endif %}
 
 {{ description }}
+
+{%- if readme and readme.introduction %}
+
+{{ readme.introduction }}
+{%- endif %}
 {%- endblock %}
 {%- block screenshots %}{% endblock %}
 {% block header_meta %}
@@ -267,6 +272,9 @@ Source: dbuild templates
 
 ## Version Tags
 
+{%- if readme and readme.version_tags %}
+{{ readme.version_tags }}
+{%- else %}
 | Tag | Description | Best For |
 | :--- | :--- | :--- |
 {%- if variants | length > 1 %}
@@ -300,6 +308,7 @@ Source: dbuild templates
 | `pkg-latest` | **FreeBSD Latest**. Rolling package updates. | Newest FreeBSD features. |
 {%- endif %}
 {%- endif %}
+{%- endif %}
 {%- endblock %}
 
 {%- block prerequisites -%}
@@ -307,33 +316,55 @@ Source: dbuild templates
 
 ## Prerequisites
 
+{%- if readme and readme.prerequisites %}
+{{ readme.prerequisites }}
+
+{%- endif %}
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](https://daemonless.io/guides/quick-start) for host setup instructions.
 {%- endif %}
 {%- endblock %}
 {%- block deployment -%}
-{%- if image_class in ["service", "cli"] %}
+{%- if image_class in ["service", "cli", "stack"] %}
 
 ## Deployment
 
 {%- block deployment_tabs -%}
-{%- if image_class == "service" %}
+{%- if image_class in ["service", "stack"] %}
 
 ### Podman Compose
 
-```yaml
+{%- if env and image_class == "stack" %}
+**1.** Save as `.env`:
+
+```env { data-zip-bundle="{{ name }}-podman" data-zip-filename=".env" }
+{%- for e in env %}
+{{ e.name }}={{ e.default }}
+{%- endfor %}
+```
+
+**2.** Save as `compose.yaml`:
+{%- endif %}
+
+```yaml{% if env and image_class == "stack" %} { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }{% endif %}
 {{ compose_snippet() }}
 ```
 {%- if appjail_enabled %}
 
 ### AppJail Director
 
+{%- if readme and readme.appjail_director %}
+{{ readme.appjail_director }}
+{%- else %}
 {{ appjail_director_snippet() }}
+{%- endif %}
 
 {%- if ports %}
 **Note**: Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the IPv4 address assigned by the virtual network.
 {%- endif %}
 {%- endif %}
 {%- endif %}
+
+{%- if image_class == "service" %}
 
 ### Podman CLI
 
@@ -353,8 +384,6 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- endif %}
 {%- endif %}
 
-{%- if image_class == "service" %}
-
 ### Ansible
 
 ```yaml
@@ -369,6 +398,20 @@ Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else po
 {%- endif %}
 {%- endif %}
 {%- endblock %}
+
+{%- if readme and readme.setup %}
+
+## Setup Instructions
+
+{{ readme.setup }}
+{%- endif %}
+
+{%- if readme and readme.troubleshooting %}
+
+## Troubleshooting
+
+{{ readme.troubleshooting }}
+{%- endif %}
 
 {%- block interactive_config %}{%- endblock %}
 

@@ -64,6 +64,17 @@ def arch_tag_suffix(arch: str) -> str:
 # ── Dataclasses ──────────────────────────────────────────────────────
 
 @dataclass
+class ReadmeBlocks:
+    """Structured Markdown blocks to inject into the generated README."""
+    introduction: str = ""
+    version_tags: str = ""
+    prerequisites: str = ""
+    appjail_director: str = ""
+    setup: str = ""
+    troubleshooting: str = ""
+
+
+@dataclass
 class DeprecationInfo:
     """Structured deprecation metadata for an image."""
 
@@ -255,6 +266,9 @@ class Metadata:
     })
     deprecated: DeprecationInfo | None = field(default=None, metadata={
         "desc": "Mark this image as deprecated. Bare key disables builds; pass a dict with `reason`, `replacement`, `sunset_date`, and/or `migration_guide` for structured messaging.",
+    })
+    readme: ReadmeBlocks | None = field(default=None, metadata={
+        "desc": "Custom Markdown blocks to inject into specific sections of the README.",
     })
 
 
@@ -582,6 +596,7 @@ def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = Non
         docs=meta.get("docs", {}),
         image_class=meta.get("class", "service"),
         deprecated=_parse_deprecated(meta),
+        readme=ReadmeBlocks(**meta.get("readme", {})),
     )
 
 
