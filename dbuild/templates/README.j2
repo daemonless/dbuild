@@ -364,13 +364,15 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- endif %}
 {%- endif %}
 
-{%- if image_class == "service" %}
+{%- if image_class in ["service", "cli"] %}
 
 ### Podman CLI
 
 ```bash
 {{ cli_snippet() }}
 ```
+{%- endif %}
+{%- if image_class == "service" %}
 {%- if appjail_enabled %}
 
 ### AppJail

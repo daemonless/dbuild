@@ -180,7 +180,7 @@ class Variant:
         "desc": "Mark as the default variant for `dbuild test` when no `--variant` is given",
     })
     pkg_name: str | None = field(default=None, metadata={
-        "desc": "Override the top-level `build.pkg_name` for this variant",
+        "desc": "FreeBSD package name override for this variant (auto-injected as --build-arg PKG_NAME)",
     })
     tag_desc: str | None = field(default=None, metadata={
         "desc": "Override the auto-generated tag description in the README version table",

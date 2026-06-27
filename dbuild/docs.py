@@ -114,7 +114,7 @@ DOCS_CONTENT = {
     "METADATA_FIELDS": _fields_for_docs(Metadata),
     "BUILD_FIELDS": [
         # No BuildConfig dataclass yet — these are parsed from a raw dict in load().
-        ("pkg_name",      "None",        "Default FreeBSD package name for version extraction across all variants"),
+        ("pkg_name",      "None",        "Default FreeBSD package name (auto-injected as --build-arg PKG_NAME and used for version extraction across variants)"),
         ("architectures", '["amd64"]',   'List of architectures to build (e.g. `["amd64", "arm64"]`)'),
     ],
     "VARIANT_FIELDS":     _fields_for_docs(Variant),

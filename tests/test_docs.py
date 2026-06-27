@@ -161,6 +161,33 @@ class TestCheckGeneratedReadmeGating(unittest.TestCase):
         )
 
 
+class TestReadmeCliDeployment(unittest.TestCase):
+    """CLI images should show their run-and-exit Podman usage."""
+
+    def test_cli_image_renders_podman_cli_usage(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            (repo / ".daemonless" / "config.yaml").write_text(
+                "x-daemonless:\n"
+                "  class: cli\n"
+                "build:\n"
+                "  variants:\n"
+                "    - tag: latest\n"
+                "      containerfile: Containerfile\n"
+            )
+            args = argparse.Namespace(community=None)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                self.assertEqual(docs.run(cfg, args), 0)
+
+            readme = (repo / "README.md").read_text()
+            self.assertIn("### Podman CLI", readme)
+            self.assertIn("podman run --rm", readme)
+            self.assertIn("ghcr.io/daemonless/", readme)
+
+
 @contextlib.contextmanager
 def _set_env(key: str, value: str):
     prev = os.environ.get(key)
