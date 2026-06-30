@@ -78,6 +78,13 @@ def _build_variant(
     # Auto-inject pkg_name as PKG_NAME if set and not already provided.
     if variant.pkg_name:
         build_args.setdefault("PKG_NAME", variant.pkg_name)
+    # Auto-inject PKG_CACHE_URL from the host-local global config. The file only
+    # exists where you put it (e.g. jupiter), so the cache is used only there;
+    # the gated `pkg-cache-setup` hook in each Containerfile is a no-op without it.
+    from dbuild.config import _load_global_config
+    _cache_url = _load_global_config().get("pkg_cache_url")
+    if _cache_url:
+        build_args.setdefault("PKG_CACHE_URL", str(_cache_url))
 
     # ---- secrets ----
     secrets: dict[str, str] = {}

@@ -369,7 +369,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         src = v["source"]
         tgt = v["target"]
 
-        clean_target = tgt.strip("/").replace("/", "_").replace("-", "_").upper()
+        clean_target = tgt.strip("/").replace("/", "_").replace("-", "_").replace(".", "_").upper()
         vol_info = vol_docs.get(str(tgt), "")
         desc = vol_info.get("desc", "") if isinstance(vol_info, dict) else str(vol_info)
         optional = vol_info.get("optional", False) if isinstance(vol_info, dict) else False
