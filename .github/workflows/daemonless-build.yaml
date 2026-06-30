@@ -35,7 +35,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  DBUILD_REF: v1.9.4
+  DBUILD_REF: v1.9.5
 
 jobs:
   # Detect which variants exist and build dynamic matrix

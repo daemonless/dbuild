@@ -382,6 +382,11 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             placeholder = f"@{cfg.image.upper().replace('-', '_')}_CONFIG_PATH@"
             source_path = cfg.image
             root_var = CONFIG_ROOT_VAR
+        elif src == tgt:
+            # Source equals target — host path is the literal mount point, not user-configurable
+            source_path = src
+            root_var = None
+            placeholder = src
         elif src.startswith("./") or src.startswith("."):
             clean_src = src.lstrip("./")
             source_path = f"{cfg.image}/{clean_src}"
