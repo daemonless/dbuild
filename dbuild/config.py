@@ -478,10 +478,12 @@ def _parse_service_data(
                 parts = v.split(":")
                 src = parts[0]
                 tgt = parts[1] if len(parts) > 1 else parts[0]
+                opts = parts[2] if len(parts) > 2 else ""
             else:
                 src = v.get("source", "")
                 tgt = v.get("target", "")
-            volumes.append({"source": src, "target": tgt})
+                opts = "ro" if v.get("read_only") else ""
+            volumes.append({"source": src, "target": tgt, "options": opts})
 
         # Ports
         for p in service.get("ports", []):

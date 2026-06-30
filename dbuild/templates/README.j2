@@ -20,9 +20,15 @@
 {{ cfg_root }}/{{ v.placeholder if (render_mode == "mkdocs" and v.placeholder) else v.source }}
 {%- elif render_mode == "mkdocs" and v.placeholder -%}
 {{ v.placeholder }}
+{%- elif v.source.startswith('/') -%}
+{{ v.source }}
 {%- else -%}
 /path/to/{{ v.source }}
 {%- endif -%}
+{%- endmacro -%}
+
+{%- macro vol_tgt(v) -%}
+{{ v.path }}{{ ":" ~ v.options if v.options else "" }}
 {%- endmacro -%}
 
 {%- macro compose_snippet(override_port=None) -%}
@@ -39,7 +45,7 @@ services:
 {%- if volumes %}
     volumes:
 {%- for v in volumes %}
-      - "{{ vol_src(v) }}:{{ v.path }}"{{ " # optional" if v.optional else "" }}
+      - "{{ vol_src(v) }}:{{ vol_tgt(v) }}"{{ " # optional" if v.optional else "" }}
 {%- endfor %}
 {%- endif %}
 {%- if ports %}
@@ -122,7 +128,7 @@ podman run -d --name {{ name }} \
   -e {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
 {%- endfor %}
 {%- for v in volumes %}
-  -v {{ vol_src(v) }}:{{ v.path }}{{ " # optional" if v.optional else "" }} \
+  -v {{ vol_src(v) }}:{{ vol_tgt(v) }}{{ " # optional" if v.optional else "" }} \
 {%- endfor %}
   {{ reg_var }}/{{ name }}:latest
 {%- endmacro %}
@@ -186,7 +192,7 @@ appjail oci run \
 {%- if volumes %}
     volumes:
 {%- for v in volumes %}
-      - "{{ vol_src(v) }}:{{ v.path }}"{{ " # optional" if v.optional else "" }}
+      - "{{ vol_src(v) }}:{{ vol_tgt(v) }}"{{ " # optional" if v.optional else "" }}
 {%- endfor %}
 {%- endif %}
 {%- if jail_allow %}

@@ -403,7 +403,8 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             "optional": optional,
             "placeholder": placeholder,
             "source": source_path,
-            "root_var": root_var
+            "root_var": root_var,
+            "options": v.get("options", "")
         })
 
     # Ports
