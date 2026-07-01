@@ -27,7 +27,7 @@ _OCIJAIL_URL_TEMPLATE = (
 
 _PKG_LIST = [
     "podman", "skopeo", "buildah", "trivy",
-    "python3", "py311-pyyaml",
+    "python3", "py312-pyyaml",
 ]
 
 _COMPOSE_PKG = "podman-compose"

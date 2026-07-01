@@ -154,11 +154,11 @@ def _check_screenshot_deps() -> list[str]:
     try:
         import selenium  # noqa: F401
     except ImportError:
-        missing.append("py311-selenium (python package)")
+        missing.append("py312-selenium (python package)")
     try:
         import skimage  # noqa: F401
     except ImportError:
-        missing.append("py311-scikit-image (python package)")
+        missing.append("py312-scikit-image (python package)")
 
     # System binaries
     chrome_bin = os.environ.get("CHROME_BIN", "/usr/local/bin/chrome")
