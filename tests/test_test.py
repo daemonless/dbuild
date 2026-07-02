@@ -220,7 +220,7 @@ class TestResolveMode(unittest.TestCase):
             result = cit._resolve_mode("", port=8080, health="/", baseline=baseline)
             self.assertEqual(result, "screenshot")
 
-    @patch("dbuild.test._check_screenshot_deps", return_value=["py312-selenium (python package)"])
+    @patch("dbuild.test._check_screenshot_deps", return_value=["www/py-selenium (python package)"])
     def test_auto_detect_screenshot_downgrades_without_deps(self, _mock):
         with tempfile.NamedTemporaryFile(suffix=".png") as f:
             baseline = Path(f.name)

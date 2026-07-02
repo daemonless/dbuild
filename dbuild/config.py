@@ -8,6 +8,8 @@ know about CI, or touch the network.
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,8 +25,54 @@ except ImportError:
 # Suffixes to ignore when auto-detecting variants from Containerfile.*
 _IGNORE_SUFFIXES: set[str] = {".j2", ".bak", ".orig", ".swp", ".tmp"}
 
-# Global config path — shared variant templates for all repos.
-_GLOBAL_CONFIG_PATH = Path("/usr/local/etc/daemonless.yaml")
+# Global config path override for tests and embedding. Runtime default comes from PREFIX.
+_GLOBAL_CONFIG_PATH: Path | None = None
+
+
+def _confident_prefix() -> Path | None:
+    """Return the install prefix only when it can be determined reliably.
+
+    Checks PREFIX (the FreeBSD install convention), then the installed
+    dbuild entry point. Returns None rather than guessing when neither is
+    available -- callers decide what "unknown" should mean for them.
+    """
+    prefix = os.environ.get("PREFIX")
+    if prefix:
+        return Path(prefix)
+    return _prefix_from_executable()
+
+
+def _global_config_path() -> Path:
+    """Return the host-local global config path for runtime use.
+
+    Falls back to sys.prefix when the prefix can't be determined
+    confidently -- appropriate here since this is called by an actually
+    running interpreter, where sys.prefix reflects a real location.
+    """
+    if _GLOBAL_CONFIG_PATH is not None:
+        return _GLOBAL_CONFIG_PATH
+    prefix_path = _confident_prefix() or Path(sys.prefix)
+    return prefix_path / "etc" / "daemonless.yaml"
+
+
+def _prefix_from_executable() -> Path | None:
+    """Return the install prefix when running from a dbuild entry point."""
+    argv0 = sys.argv[0] if sys.argv else ""
+    if not argv0:
+        return None
+
+    executable = Path(argv0)
+    if not executable.is_absolute() and executable.parent == Path("."):
+        found = shutil.which(argv0)
+        if found is None:
+            return None
+        executable = Path(found)
+    elif not executable.is_absolute():
+        executable = executable.resolve()
+
+    if executable.name != "dbuild" or executable.parent.name != "bin":
+        return None
+    return executable.parent.parent
 
 # Valid x-daemonless categories — single source of truth across dbuild.
 VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base"]
@@ -409,7 +457,7 @@ def _load_global_config(path: Path | None = None) -> dict[str, Any]:
     Returns an empty dict when the file is missing or PyYAML is unavailable.
     """
     if path is None:
-        path = _GLOBAL_CONFIG_PATH
+        path = _global_config_path()
     if yaml is None or not path.is_file():
         return {}
     with open(path) as fh:

@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-06-30" "dbuild 1.9.5" "User Commands"
+.TH DBUILD 1 "2026-07-02" "dbuild 1.9.6" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -40,6 +40,9 @@ disable build cache (passes --no-cache to podman build)
 .TP
 \fB-p\fR, \fB--parallel\fR
 build variants in parallel; optionally limit to N concurrent builds
+.TP
+\fB--promote-local\fR
+tag directly as the final tag(s) instead of build-{tag}, skipping the staging step normally promoted by `dbuild push`/`dbuild promote`. Useful for promoting a build into local final tags without pushing, or so another local Containerfile's FROM can resolve to this image without pulling from the registry.
 .RE
 .TP
 \fBci-prepare\fR
@@ -190,6 +193,20 @@ Create and push multi-architecture manifest lists.
 show this help message and exit
 .RE
 .TP
+\fBpromote\fR
+Tag already-built build-{tag} images with their final tag, aliases, and version tag. Does not touch the registry or require auth -- run `dbuild build` (and optionally `dbuild test`) first.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--variant\fR
+filter to a single variant by tag (e.g. latest, pkg)
+.TP
+\fB--arch\fR
+override target architecture (e.g. amd64, aarch64)
+.RE
+.TP
 \fBprune\fR
 Find and remove leftover CIT containers (Podman), jails (AppJail), build-tagged images, and /tmp/dbuild-cit-* files for the current project.
 .RS
@@ -290,7 +307,15 @@ The primary source of truth for metadata and documentation.
 Project-specific build and test overrides.
 .TP
 \fI/usr/local/etc/daemonless.yaml\fR
-Global templates for shared build variants.
+Optional host-local defaults, including pkg_cache_url for local pkg-cache injection.
+.SH GLOBAL CONFIGURATION
+The \fI/usr/local/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
+.PP
+Example \fI/usr/local/etc/daemonless.yaml\fR:
+.IP
+.nf
+pkg_cache_url: pkg-cache.example.lan:8080
+.fi
 .SH EXAMPLES
 Build and push all variants:
 .IP

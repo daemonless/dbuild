@@ -25,7 +25,7 @@ check:
 
 docs/dbuild.1:
 	@mkdir -p docs
-	@PYTHONPATH=. ${PYTHON} -m dbuild --generate-manpage > docs/dbuild.1
+	@PREFIX=${PREFIX} PYTHONPATH=. ${PYTHON} -m dbuild --generate-manpage > docs/dbuild.1
 	@echo "Generated docs/dbuild.1"
 
 man: docs/dbuild.1
@@ -40,7 +40,8 @@ install: docs/dbuild.1
 	mkdir -p ${SHAREDIR}
 	cp -R dbuild ${SHAREDIR}/
 	cp pyproject.toml ${SHAREDIR}/
-	@printf '#!/bin/sh\nPYTHONPATH=${SHAREDIR} exec ${PYTHON} -m dbuild "$$@"\n' > ${BINDIR}/dbuild
+	mkdir -p ${BINDIR}
+	@printf '#!/bin/sh\n: $${PREFIX:=${PREFIX}}\nexport PREFIX\nPYTHONPATH=${SHAREDIR} exec ${PYTHON} -m dbuild "$$@"\n' > ${BINDIR}/dbuild
 	chmod +x ${BINDIR}/dbuild
 	mkdir -p ${MANDIR}
 	cp docs/dbuild.1 ${MANDIR}/

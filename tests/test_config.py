@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -12,6 +13,7 @@ from dbuild.config import (
     Config,
     _auto_detect_variants,
     _git_remote_org,
+    _global_config_path,
     _global_extra_variants,
     _load_global_config,
     _parse_test_config,
@@ -406,6 +408,40 @@ class TestGitRemoteOrg(unittest.TestCase):
 
 class TestLoadGlobalConfig(unittest.TestCase):
     """Tests for _load_global_config()."""
+
+    def test_global_config_path_uses_prefix(self):
+        with (
+            patch.dict(os.environ, {"PREFIX": "/opt/dbuild"}),
+            patch("dbuild.config._GLOBAL_CONFIG_PATH", None),
+        ):
+            self.assertEqual(
+                _global_config_path(),
+                Path("/opt/dbuild/etc/daemonless.yaml"),
+            )
+
+    def test_global_config_path_uses_entry_point_from_path(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("dbuild.config._GLOBAL_CONFIG_PATH", None),
+            patch("dbuild.config.sys.argv", ["dbuild"]),
+            patch("dbuild.config.shutil.which", return_value="/opt/dbuild/bin/dbuild"),
+        ):
+            self.assertEqual(
+                _global_config_path(),
+                Path("/opt/dbuild/etc/daemonless.yaml"),
+            )
+
+    def test_global_config_path_uses_absolute_entry_point(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("dbuild.config._GLOBAL_CONFIG_PATH", None),
+            patch("dbuild.config.sys.argv", ["/usr/local/bin/dbuild"]),
+            patch("dbuild.config.shutil.which"),
+        ):
+            self.assertEqual(
+                _global_config_path(),
+                Path("/usr/local/etc/daemonless.yaml"),
+            )
 
     def test_missing_file(self):
         import tempfile

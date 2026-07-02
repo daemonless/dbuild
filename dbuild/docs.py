@@ -9,6 +9,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .config import _confident_prefix
+
 try:
     import jinja2
 except ImportError:
@@ -80,6 +82,22 @@ def _fields_for_docs(cls) -> list[tuple[str, str, str]]:
 
 # ── Extended Documentation Content ────────────────────────────────────
 
+def _global_config_doc_path() -> str:
+    """Return the global config path for display in generated docs.
+
+    Unlike dbuild.config._global_config_path(), this does NOT fall back to
+    sys.prefix. During an isolated PEP 517 build that doesn't export
+    PREFIX (e.g. a port build), sys.prefix resolves to pip/build's
+    throwaway virtualenv, not any real install location -- showing that
+    path would be actively wrong, not just imprecise. When the prefix
+    can't be determined confidently, show the literal placeholder instead.
+    """
+    prefix_path = _confident_prefix()
+    if prefix_path is None:
+        return "$PREFIX/etc/daemonless.yaml"
+    return str(prefix_path / "etc" / "daemonless.yaml")
+
+
 DOCS_CONTENT = {
     "DESCRIPTION": (
         "dbuild provides a streamlined interface for creating and managing OCI-compliant "
@@ -99,8 +117,8 @@ DOCS_CONTENT = {
     "FILES": {
         "compose.yaml": "The primary source of truth for metadata and documentation.",
         ".daemonless/config.yaml": "Project-specific build and test overrides.",
-        "/usr/local/etc/daemonless.yaml": "Global templates for shared build variants.",
     },
+    "GLOBAL_CONFIGURATION_EXAMPLE": """pkg_cache_url: pkg-cache.example.lan:8080""",
     "EXAMPLES": [
         ("Build and push all variants", "dbuild build --push"),
         ("Initialize from a FreeBSD Port", "dbuild init --freebsd-port net-p2p/transmission"),
@@ -179,6 +197,30 @@ def generate_manpage(parser: argparse.ArgumentParser) -> str:
         output.append(".TP")
         output.append(f"\\fI{file}\\fR")
         output.append(desc)
+
+    global_config_path = _global_config_doc_path()
+    output.append(".TP")
+    output.append(f"\\fI{global_config_path}\\fR")
+    output.append(
+        "Optional host-local defaults, including pkg_cache_url for local pkg-cache injection."
+    )
+
+    output.append(".SH GLOBAL CONFIGURATION")
+    output.append(
+        f"The \\fI{global_config_path}\\fR file is an optional host-local "
+        "config file for settings that apply on this builder, not in every "
+        "image repo. To use a local pkg cache, set \\fIpkg_cache_url\\fR. "
+        "dbuild injects that value into builds as \\fIPKG_CACHE_URL\\fR, "
+        "and opt-in Containerfiles can use it to point FreeBSD pkg at the "
+        "local cache during build. If the file or key is missing, nothing "
+        "is injected."
+    )
+    output.append(".PP")
+    output.append(f"Example \\fI{global_config_path}\\fR:")
+    output.append(".IP")
+    output.append(".nf")
+    output.append(DOCS_CONTENT["GLOBAL_CONFIGURATION_EXAMPLE"])
+    output.append(".fi")
 
     output.append(".SH EXAMPLES")
     for title, cmd in DOCS_CONTENT["EXAMPLES"]:

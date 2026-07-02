@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock, patch
 
 from dbuild.config import Variant
-from dbuild.push import _collect_tags
+from dbuild.push import _collect_tags, _local_tag_variant
 
 
 class TestCollectTags(unittest.TestCase):
@@ -30,6 +31,53 @@ class TestCollectTags(unittest.TestCase):
         v = Variant(tag="pkg", aliases=["quarterly", "15-quarterly"])
         tags = _collect_tags(v, "amd64")
         self.assertEqual(tags, ["pkg", "quarterly", "15-quarterly"])
+
+    def test_non_amd64_suffixes_all_tags(self):
+        v = Variant(tag="pkg", aliases=["quarterly"])
+        tags = _collect_tags(v, "aarch64", "2.0")
+        self.assertEqual(tags, ["pkg-aarch64", "quarterly-aarch64", "2.0-pkg-aarch64"])
+
+
+class TestLocalTagVariant(unittest.TestCase):
+    """Tests for local build-tag promotion helper."""
+
+    def test_missing_build_image_raises(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/testapp"
+        variant = Variant(tag="latest")
+
+        with (
+            patch("dbuild.push.podman.image_exists", return_value=False),
+            self.assertRaises(RuntimeError),
+        ):
+            _local_tag_variant(cfg, variant, "amd64")
+
+    def test_tags_primary_alias_and_version(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/testapp"
+        variant = Variant(tag="pkg", aliases=["quarterly"])
+
+        with patch("dbuild.push.podman.image_exists", return_value=True), \
+             patch("dbuild.push.podman.inspect_labels", return_value={
+                 "org.opencontainers.image.version": "2.0",
+             }), \
+             patch("dbuild.push.podman.tag") as mock_tag:
+            tags = _local_tag_variant(cfg, variant, "aarch64")
+
+        self.assertEqual(tags, ["pkg-aarch64", "quarterly-aarch64", "2.0-pkg-aarch64"])
+        mock_tag.assert_any_call(
+            "ghcr.io/daemonless/testapp:build-pkg",
+            "ghcr.io/daemonless/testapp:pkg-aarch64",
+        )
+        mock_tag.assert_any_call(
+            "ghcr.io/daemonless/testapp:build-pkg",
+            "ghcr.io/daemonless/testapp:quarterly-aarch64",
+        )
+        mock_tag.assert_any_call(
+            "ghcr.io/daemonless/testapp:build-pkg",
+            "ghcr.io/daemonless/testapp:2.0-pkg-aarch64",
+        )
+        self.assertEqual(mock_tag.call_count, 3)
 
 
 if __name__ == "__main__":

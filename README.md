@@ -150,6 +150,22 @@ cit:
   expect_output: "2\\.7\\.5"        # regex that must match stdout/stderr
 ```
 
+### Global Configuration
+
+`/usr/local/etc/daemonless.yaml` is an optional host-local config file for
+settings that should apply on this builder, not in every image repo. If dbuild
+is installed under a different prefix, use that prefix instead. For a local pkg
+cache, it only needs one key:
+
+```yaml
+pkg_cache_url: pkg-cache.example.lan:8080
+```
+
+When `pkg_cache_url` is set, `dbuild build` injects it as the
+`PKG_CACHE_URL` build argument. Containerfiles that opt in can use that value
+to point FreeBSD pkg at the local cache during the build. If the global file
+or key is missing, nothing is injected.
+
 ## Commands
 
 ### `dbuild build`

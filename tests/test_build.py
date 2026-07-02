@@ -93,5 +93,52 @@ class TestPkgNameBuildArg(unittest.TestCase):
         self.assertNotIn("PKG_NAME", args)
 
 
+class TestPromoteLocalBuildTagging(unittest.TestCase):
+    """Tests for dbuild build --promote-local tag behavior."""
+
+    def test_promote_local_build_uses_arch_suffixed_final_tags(self):
+        captured: dict[str, str] = {}
+
+        def fake_build(containerfile, tag, **kw):
+            captured["tag"] = tag
+            return tag
+
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/testapp"
+        cfg.type = "app"
+        cfg.metadata.description = ""
+        variant = Variant(
+            tag="latest",
+            containerfile="Containerfile",
+            aliases=["stable"],
+        )
+
+        with patch("dbuild.config._load_global_config", return_value={}), \
+             patch("dbuild.build.podman.build", side_effect=fake_build), \
+             patch("dbuild.build.version.extract_version", return_value="1.2.3"), \
+             patch("dbuild.build.labels.build_labels", return_value={}), \
+             patch("dbuild.build.labels.apply"), \
+             patch("dbuild.build.podman.tag") as mock_tag, \
+             patch("dbuild.build.log.step"), \
+             patch("dbuild.build.log.info"), \
+             patch("dbuild.build.log.timer_start"), \
+             patch("dbuild.build.log.timer_stop"), \
+             patch("dbuild.build.log.success"), \
+             patch("dbuild.build.os.environ.get", return_value=None):
+            ref = _build_variant(cfg, variant, arch="aarch64", promote_local=True)
+
+        self.assertEqual(ref, "ghcr.io/daemonless/testapp:latest-aarch64")
+        self.assertEqual(captured["tag"], ref)
+        mock_tag.assert_any_call(
+            "ghcr.io/daemonless/testapp:latest-aarch64",
+            "ghcr.io/daemonless/testapp:stable-aarch64",
+        )
+        mock_tag.assert_any_call(
+            "ghcr.io/daemonless/testapp:latest-aarch64",
+            "ghcr.io/daemonless/testapp:1.2.3-aarch64",
+        )
+        self.assertEqual(mock_tag.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

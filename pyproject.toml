@@ -1,6 +1,7 @@
 [build-system]
 requires = ["setuptools>=63"]
-build-backend = "setuptools.build_meta"
+build-backend = "dbuild.build_backend"
+backend-path = ["."]
 
 [project]
 name = "dbuild"

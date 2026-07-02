@@ -109,6 +109,18 @@ def _make_parser() -> argparse.ArgumentParser:
         default=None,
         help="build variants in parallel; optionally limit to N concurrent builds",
     )
+    build_parser.add_argument(
+        "--promote-local",
+        action="store_true",
+        default=False,
+        help=(
+            "tag directly as the final tag(s) instead of build-{tag}, skipping "
+            "the staging step normally promoted by `dbuild push`/`dbuild promote`. "
+            "Useful for promoting a build into local final tags without pushing, "
+            "or so another local Containerfile's FROM can resolve to this "
+            "image without pulling from the registry."
+        ),
+    )
 
     # -- test --
     test_parser = sub.add_parser(
@@ -150,6 +162,19 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     push_parser.add_argument("--variant", **variant_kw)
     push_parser.add_argument("--arch", **arch_kw)
+
+    # -- promote --
+    promote_parser = sub.add_parser(
+        "promote",
+        help="tag build-{tag} image(s) with their final tag, locally (no registry push)",
+        description=(
+            "Tag already-built build-{tag} images with their final tag, aliases, "
+            "and version tag. Does not touch the registry or require auth -- run "
+            "`dbuild build` (and optionally `dbuild test`) first."
+        ),
+    )
+    promote_parser.add_argument("--variant", **variant_kw)
+    promote_parser.add_argument("--arch", **arch_kw)
 
     # -- sbom --
     sbom_parser = sub.add_parser(
@@ -455,6 +480,13 @@ def _dispatch_push(cfg: Config, args: argparse.Namespace) -> int:
     return rc if rc else 0
 
 
+def _dispatch_promote(cfg: Config, args: argparse.Namespace) -> int:
+    """Run the promote subcommand."""
+    from dbuild import promote
+    rc = promote.run(cfg, args)
+    return rc if rc else 0
+
+
 def _dispatch_sbom(cfg: Config, args: argparse.Namespace) -> int:
     """Run the sbom subcommand."""
     from dbuild import sbom
@@ -520,6 +552,7 @@ _DISPATCHERS: dict[str, callable] = {
     "build": _dispatch_build,
     "test": _dispatch_test,
     "push": _dispatch_push,
+    "promote": _dispatch_promote,
     "sbom": _dispatch_sbom,
     "manifest": _dispatch_manifest,
     "prune": _dispatch_prune,

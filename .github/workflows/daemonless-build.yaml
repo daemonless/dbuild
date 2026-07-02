@@ -35,7 +35,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  DBUILD_REF: v1.9.5
+  DBUILD_REF: v1.9.6
 
 jobs:
   # Detect which variants exist and build dynamic matrix
@@ -191,7 +191,7 @@ jobs:
                 "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${SS_REF}.tar.gz"
               tar -xzf /tmp/build-tools-screenshot.tar.gz -C /tmp/build-tools
               pkg repo /tmp/build-tools
-              pkg install -y chromium py312-selenium py312-scikit-image
+              pkg install -y chromium www/py-selenium graphics/py-scikit-image
             fi
 
             # Test (capture exit code for copyback)

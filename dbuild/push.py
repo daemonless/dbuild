@@ -56,6 +56,32 @@ def _collect_tags(
     return tags
 
 
+def _local_tag_variant(cfg: Config, variant: Variant, arch: str) -> list[str]:
+    """Tag ``build-{tag}`` with its final tag, aliases, and version tag.
+
+    Does not touch the registry. Returns the list of tags applied.
+    Raises ``RuntimeError`` if no ``build-{tag}`` image exists locally.
+    """
+    build_ref = f"{cfg.full_image}:build-{variant.tag}"
+    if not podman.image_exists(build_ref):
+        raise RuntimeError(
+            f"No build-{variant.tag} image found -- run `dbuild build` first"
+        )
+
+    # Read version from OCI label applied during build.
+    labels = podman.inspect_labels(build_ref)
+    version = labels.get("org.opencontainers.image.version")
+
+    tags = _collect_tags(variant, arch, version)
+
+    for tag in tags:
+        final_ref = f"{cfg.full_image}:{tag}"
+        log.info(f"Tagging {build_ref} -> {final_ref}")
+        podman.tag(build_ref, final_ref)
+
+    return tags
+
+
 def _push_variant(
     cfg: Config,
     variant: Variant,
@@ -65,21 +91,12 @@ def _push_variant(
     mirror_reg: registry_mod.RegistryBase | None = None,
 ) -> None:
     """Tag and push a single variant to the primary (and optional mirror) registry."""
-    build_ref = f"{cfg.full_image}:build-{variant.tag}"
-
-    # Read version from OCI label applied during build.
-    labels = podman.inspect_labels(build_ref)
-    version = labels.get("org.opencontainers.image.version")
-
-    tags = _collect_tags(variant, arch, version)
+    tags = _local_tag_variant(cfg, variant, arch)
 
     log.step(f"Pushing :{variant.tag}")
 
-    # Tag and push to primary registry.
+    # Push each tag to the primary registry.
     for tag in tags:
-        final_ref = f"{cfg.full_image}:{tag}"
-        log.info(f"Tagging {build_ref} -> {final_ref}")
-        podman.tag(build_ref, final_ref)
         reg.push(cfg.full_image, tag)
 
     # Mirror to secondary registry (e.g. Docker Hub).

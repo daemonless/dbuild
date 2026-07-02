@@ -6,7 +6,8 @@ this module:
 1. Maps the target architecture to the FreeBSD convention.
 2. Assembles build arguments (including ``FREEBSD_ARCH`` and ``BASE_VERSION``).
 3. Calls :func:`podman.build` with secrets for ``GITHUB_TOKEN``.
-4. Tags the result as ``{full_image}:build-{tag}``.
+4. Tags the result as ``{full_image}:build-{tag}`` (or the final tag(s)
+   directly with ``--promote-local``, skipping staging).
 5. Extracts the application/base version via :mod:`version`.
 6. Applies OCI labels via :mod:`labels`.
 
@@ -20,7 +21,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dbuild import labels, log, podman, version
-from dbuild.config import Config, Variant
+from dbuild.config import Config, Variant, arch_tag_suffix
 
 # ── Architecture mapping ─────────────────────────────────────────────
 
@@ -58,10 +59,15 @@ def _build_variant(
     *,
     prefix: str | None = None,
     no_cache: bool = False,
+    promote_local: bool = False,
 ) -> str:
     """Build one variant for one architecture.  Returns the build tag."""
     freebsd_arch = _map_arch(arch)
-    build_tag = f"build-{variant.tag}"
+    build_tag = (
+        f"{variant.tag}{arch_tag_suffix(freebsd_arch)}"
+        if promote_local
+        else f"build-{variant.tag}"
+    )
     full_build_ref = f"{cfg.full_image}:{build_tag}"
 
     log.step(f"Building :{variant.tag}  (arch={freebsd_arch})")
@@ -123,6 +129,15 @@ def _build_variant(
         annotations["org.opencontainers.image.description"] = cfg.metadata.description
     labels.apply(full_build_ref, oci_labels, annotations=annotations)
 
+    if promote_local:
+        from dbuild.push import _collect_tags
+        for tag in _collect_tags(variant, freebsd_arch, app_version):
+            if tag == build_tag:
+                continue
+            alias_ref = f"{cfg.full_image}:{tag}"
+            log.info(f"Tagging {full_build_ref} -> {alias_ref}")
+            podman.tag(full_build_ref, alias_ref)
+
     return full_build_ref
 
 
@@ -150,6 +165,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     arch: str = getattr(args, "arch", None) or cfg.architectures[0]
     parallel: int | None = getattr(args, "parallel", None)
     no_cache: bool = getattr(args, "no_cache", False)
+    promote_local: bool = getattr(args, "promote_local", False)
 
     variants = [
         v for v in cfg.variants
@@ -173,7 +189,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             for idx, variant in enumerate(variants):
                 colored = log.color_tag(f"{variant.tag:<{max_tag_len}}", idx)
                 prefix = f"[{colored}] "
-                futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix, no_cache=no_cache)] = variant.tag
+                futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix, no_cache=no_cache, promote_local=promote_local)] = variant.tag
 
             for future in as_completed(futures):
                 tag = futures[future]
@@ -185,7 +201,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
                     raise
     else:
         for variant in variants:
-            ref = _build_variant(cfg, variant, arch, no_cache=no_cache)
+            ref = _build_variant(cfg, variant, arch, no_cache=no_cache, promote_local=promote_local)
             built.append(ref)
 
     log.step("Build summary")
