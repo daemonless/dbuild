@@ -254,11 +254,12 @@ def _wait_for_ready(
     timeout: int,
     *,
     backend: ContainerBackend,
-) -> bool:
+) -> str:
     """Poll container logs for ready patterns.
 
-    Returns True if a ready pattern was found, False on timeout.
-    Also checks that the container is still running.
+    Returns ``"ready"`` when a pattern matched, ``"timeout"`` when the
+    timeout elapsed without a match (non-fatal -- the port/health checks
+    decide), or ``"exited"`` when the container died during the wait.
     """
     compiled = re.compile(patterns)
     poll_interval = 3
@@ -268,12 +269,12 @@ def _wait_for_ready(
             log.error("Container exited during ready wait")
             for line in backend.logs(cname).splitlines()[-20:]:
                 log.info(f"  {line}")
-            return False
+            return "exited"
 
         if compiled.search(backend.logs(cname, quiet=True)):
             log.info(f"Ready signal after {elapsed}s")
             time.sleep(2)
-            return True
+            return "ready"
 
         time.sleep(poll_interval)
         elapsed += poll_interval
@@ -282,7 +283,7 @@ def _wait_for_ready(
         f"No ready signal after {timeout}s -- check the ready pattern, or a "
         "missing s6 notification-fd if the run script uses s6-ready-when"
     )
-    return True  # timeout is not fatal -- the port/health check will catch failures
+    return "timeout"  # not fatal -- the port/health check will catch failures
 
 
 # ── Individual test implementations ──────────────────────────────────
@@ -590,7 +591,10 @@ def _functional_checks(
             return 1
         log.info(f"Container IP: {ip}")
         if mode in ("health", "screenshot"):
-            _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
+            state = _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
+            results["ready"] = {"ready": "pass", "timeout": "timeout"}.get(state, "fail")
+            if state == "exited":
+                return 1
 
     # === PORT TEST ===
     if port is None:
@@ -765,6 +769,7 @@ def _test_variant(
     # -- Result tracking --
     results: dict[str, str] = {
         "shell": "skip",
+        "ready": "skip",
         "port": "skip",
         "health": "skip",
         "screenshot": "skip",
@@ -1112,7 +1117,9 @@ def _puid_start_and_wait(
     backend.start(cname, build_ref, annotations=annotations, env=env, volumes=volumes)
     if not _test_shell(cname, backend=backend):
         return False
-    return _wait_for_ready(cname, _PUID_READY, wait, backend=backend)
+    # Timeout is non-fatal (the ownership assert follows); only a dead
+    # container is a hard failure.
+    return _wait_for_ready(cname, _PUID_READY, wait, backend=backend) != "exited"
 
 
 def _puid_phase(

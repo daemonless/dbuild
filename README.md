@@ -363,6 +363,7 @@ doas podman save ghcr.io/daemonless/myapp:build-latest | ssh jupiter doas podman
   "mode": "health",
   "timestamp": "2026-02-08T17:01:11Z",
   "shell": "pass",
+  "ready": "pass",
   "port": "pass",
   "health": "pass",
   "screenshot": "skip",
@@ -371,7 +372,9 @@ doas podman save ghcr.io/daemonless/myapp:build-latest | ssh jupiter doas podman
 }
 ```
 
-Each test is `"pass"`, `"fail"`, or `"skip"`.
+Each test is `"pass"`, `"fail"`, or `"skip"`. The `ready` key can also be
+`"timeout"`: the log ready-pattern never matched but the run continued —
+worth checking for a missing s6 `notification-fd` or a stale `ready:` regex.
 
 ## Development
 

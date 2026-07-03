@@ -369,6 +369,42 @@ class TestResolveImageRef(unittest.TestCase):
         self.assertIsNone(ref)
 
 
+class _FakeReadyBackend:
+    """Minimal backend fake for _wait_for_ready()."""
+
+    def __init__(self, running: bool = True, logs: str = ""):
+        self._running = running
+        self._logs = logs
+
+    def running(self, cname, quiet=False):
+        return self._running
+
+    def logs(self, cname, quiet=False):
+        return self._logs
+
+
+class TestWaitForReady(unittest.TestCase):
+    """Tests for _wait_for_ready() outcome states."""
+
+    def test_ready_on_pattern_match(self):
+        be = _FakeReadyBackend(logs="starting up\nServer started\n")
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "ready")
+
+    def test_timeout_when_no_match(self):
+        be = _FakeReadyBackend(logs="still warming up\n")
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 3, backend=be)
+        self.assertEqual(state, "timeout")
+
+    def test_exited_when_container_dies(self):
+        be = _FakeReadyBackend(running=False)
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "exited")
+
+
 class TestTestHealth5xx(unittest.TestCase):
     """5xx responses must NOT count as healthy."""
 
@@ -559,7 +595,7 @@ class TestPuidPhase(unittest.TestCase):
         be = _FakePuidBackend("9999", "9999")
         be.stop = lambda *a, **k: None
         results: dict[str, str] = {}
-        with patch.object(cit, "_wait_for_ready", return_value=True):
+        with patch.object(cit, "_wait_for_ready", return_value="ready"):
             rc = cit._puid_phase(
                 be, "c1", "c2", "img:build-latest",
                 volume="vol", annotations={}, wait=5, results=results,
