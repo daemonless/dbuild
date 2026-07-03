@@ -343,6 +343,32 @@ class _Error500Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class TestResolveImageRef(unittest.TestCase):
+    """Tests for _resolve_image_ref() (build-{tag} -> {tag} fallback)."""
+
+    def _cfg(self):
+        from dbuild.config import Config
+        return Config(image="myapp", registry="ghcr.io/daemonless")
+
+    def test_prefers_build_tag(self):
+        with patch("dbuild.test.podman.image_exists", return_value=True):
+            ref = cit._resolve_image_ref(self._cfg(), "latest")
+        self.assertEqual(ref, "ghcr.io/daemonless/myapp:build-latest")
+
+    def test_falls_back_to_final_tag(self):
+        # build-latest missing, latest present (dbuild build --promote-local)
+        def exists(ref):
+            return ref == "ghcr.io/daemonless/myapp:latest"
+        with patch("dbuild.test.podman.image_exists", side_effect=exists):
+            ref = cit._resolve_image_ref(self._cfg(), "latest")
+        self.assertEqual(ref, "ghcr.io/daemonless/myapp:latest")
+
+    def test_none_when_no_image(self):
+        with patch("dbuild.test.podman.image_exists", return_value=False):
+            ref = cit._resolve_image_ref(self._cfg(), "latest")
+        self.assertIsNone(ref)
+
+
 class TestTestHealth5xx(unittest.TestCase):
     """5xx responses must NOT count as healthy."""
 

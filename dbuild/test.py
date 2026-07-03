@@ -117,6 +117,24 @@ def _read_labels(image_ref: str) -> dict:
     }
 
 
+def _resolve_image_ref(cfg: Config, tag: str) -> str | None:
+    """Return the local image ref to test: ``build-{tag}``, else ``{tag}``.
+
+    ``dbuild build`` stages images as ``build-{tag}``, but
+    ``dbuild build --promote-local`` skips staging and writes the final
+    tags directly -- fall back to the final tag so both flows are testable.
+    Returns None when neither exists locally (never pulls from a registry).
+    """
+    build_ref = f"{cfg.full_image}:build-{tag}"
+    if podman.image_exists(build_ref):
+        return build_ref
+    final_ref = f"{cfg.full_image}:{tag}"
+    if podman.image_exists(final_ref):
+        log.info(f"Using local image: {final_ref}")
+        return final_ref
+    return None
+
+
 # ── Mode auto-detection ──────────────────────────────────────────────
 
 def _find_baseline(repo_dir: Path, tag: str | None = None) -> Path | None:
@@ -643,10 +661,17 @@ def _test_variant(
     ownership "deploy 1"; after the functional checks pass it is redeployed
     once at 1234:5678 to verify the re-chown.
     """
-    build_ref = f"{cfg.full_image}:build-{variant.tag}"
     repo_dir = Path.cwd()
 
     log.step(f"Testing :{variant.tag}")
+
+    build_ref = _resolve_image_ref(cfg, variant.tag)
+    if build_ref is None:
+        log.error(
+            f"No image found: tried build-{variant.tag} and {variant.tag} "
+            "-- run `dbuild build` first"
+        )
+        return 1
     log.info(f"Image: {build_ref}")
 
     # -- Merge config: labels + config overrides --
@@ -896,27 +921,19 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
 
     if compose_mode:
         if variant:
-            # Try build-{tag} first (CI), fall back to :{tag} (local)
-            build_ref = f"{cfg.full_image}:build-{tag}"
-            if not podman.image_exists(build_ref):
-                build_ref = f"{cfg.full_image}:{tag}"
-                if not podman.image_exists(build_ref):
-                    log.error(f"No image found: tried build-{tag} and {tag}")
-                    return 1
-                log.info(f"Using local image: {build_ref}")
+            build_ref = _resolve_image_ref(cfg, tag)
+            if build_ref is None:
+                log.error(f"No image found: tried build-{tag} and {tag}")
+                return 1
             build_tag = f"{cfg.full_image}:build"
             podman.tag(build_ref, build_tag)
         label_info: dict = {"port": None, "health": None, "jail_annotations": {}}
     else:
         assert variant is not None
-        # Try build-{tag} first (CI), fall back to :{tag} (local)
-        build_ref = f"{cfg.full_image}:build-{tag}"
-        if not podman.image_exists(build_ref):
-            build_ref = f"{cfg.full_image}:{tag}"
-            if not podman.image_exists(build_ref):
-                log.error(f"No image found: tried build-{tag} and {tag}")
-                return 1
-            log.info(f"Using local image: {build_ref}")
+        build_ref = _resolve_image_ref(cfg, tag)
+        if build_ref is None:
+            log.error(f"No image found: tried build-{tag} and {tag}")
+            return 1
         label_info = _read_labels(build_ref)
 
     port = test.port or label_info["port"]
