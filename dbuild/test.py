@@ -278,7 +278,10 @@ def _wait_for_ready(
         time.sleep(poll_interval)
         elapsed += poll_interval
 
-    log.info(f"No ready signal after {timeout}s (continuing anyway)")
+    log.warn(
+        f"No ready signal after {timeout}s -- check the ready pattern, or a "
+        "missing s6 notification-fd if the run script uses s6-ready-when"
+    )
     return True  # timeout is not fatal -- the port/health check will catch failures
 
 
