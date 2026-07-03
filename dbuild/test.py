@@ -344,8 +344,10 @@ def _test_health(
 ) -> bool:
     """Wait for an HTTP endpoint to respond with a non-error status.
 
-    Accepts any response (2xx, 4xx) as healthy.  Only connection
-    failures, 502, and 503 are treated as not-ready.
+    Accepts 2xx--4xx responses as healthy (4xx covers auth walls and
+    setup wizards).  Connection failures and any 5xx are treated as
+    not-ready -- an app that boots into a crash handler returning 500
+    must not pass CIT.
     """
     scheme = "https" if https else "http"
     url = f"{scheme}://{ip}:{port}{path}"
@@ -358,6 +360,7 @@ def _test_health(
         ctx.verify_mode = ssl.CERT_NONE
 
     elapsed = 0
+    last = "no response"
     while elapsed < timeout:
         try:
             if https:
@@ -369,7 +372,8 @@ def _test_health(
             code = resp.status
             conn.close()
 
-            if code not in (502, 503):
+            last = f"HTTP {code}"
+            if code < 500:
                 log.info(f"Health ready after {elapsed}s (HTTP {code})")
                 return True
         except (ConnectionRefusedError, ConnectionResetError, OSError, http.client.HTTPException):
@@ -378,7 +382,7 @@ def _test_health(
         time.sleep(2)
         elapsed += 2
 
-    log.error(f"Health check failed after {timeout}s")
+    log.error(f"Health check failed after {timeout}s (last: {last})")
     return False
 
 

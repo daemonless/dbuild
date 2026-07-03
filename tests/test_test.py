@@ -322,12 +322,43 @@ class TestTestHealth(unittest.TestCase):
         self.assertTrue(result)
 
     def test_health_404_still_ok(self):
-        # 404 is not 502/503, so it counts as healthy
+        # 4xx counts as healthy (auth walls, setup wizards)
         result = cit._test_health("127.0.0.1", self.port, "/nonexistent", timeout=5)
         self.assertTrue(result)
 
     def test_health_connection_refused(self):
         result = cit._test_health("127.0.0.1", 19, "/", timeout=2)
+        self.assertFalse(result)
+
+
+class _Error500Handler(http.server.BaseHTTPRequestHandler):
+    """Handler that returns HTTP 500 on every request."""
+
+    def do_GET(self):
+        self.send_response(500)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+class TestTestHealth5xx(unittest.TestCase):
+    """5xx responses must NOT count as healthy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = http.server.HTTPServer(("127.0.0.1", 0), _Error500Handler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def test_health_500_fails(self):
+        result = cit._test_health("127.0.0.1", self.port, "/", timeout=2)
         self.assertFalse(result)
 
 
