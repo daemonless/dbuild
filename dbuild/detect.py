@@ -136,27 +136,37 @@ def _list_local_images(cfg: Config) -> tuple[list[dict], list[dict]]:
     # Build the set of known build-cache tags from config
     build_tags = {f"build-{v.tag}" for v in cfg.variants}
 
+    # podman emits one JSON row per repo:tag, each carrying the image's
+    # full Names list -- reading the first name per row shows one tag
+    # repeated and hides the rest. Dedupe by image ID and emit one row
+    # per matching tag instead.
     pushed = []
     cache = []
+    seen_ids: set[str] = set()
+    prefix = f"{cfg.full_image}:"
     for img in imgs:
-        names = img.get("Names") or []
-        tag = "none"
-        for name in names:
-            if ":" in name:
-                tag = name.rsplit(":", 1)[1]
-                break
+        iid = img.get("Id") or ""
+        if iid in seen_ids:
+            continue
+        seen_ids.add(iid)
         labels = img.get("Labels") or {}
         version = labels.get("org.opencontainers.image.version", "")
-        entry = {
-            "tag": tag,
-            "version": version,
-            "size": _format_size(img.get("Size", 0)),
-            "age": _format_age(img.get("Created", 0)),
-        }
-        if tag in build_tags:
-            cache.append(entry)
-        else:
-            pushed.append(entry)
+        tags = [
+            name[len(prefix):]
+            for name in (img.get("Names") or [])
+            if name.startswith(prefix)
+        ] or ["none"]
+        for tag in tags:
+            entry = {
+                "tag": tag,
+                "version": version,
+                "size": _format_size(img.get("Size", 0)),
+                "age": _format_age(img.get("Created", 0)),
+            }
+            if tag in build_tags:
+                cache.append(entry)
+            else:
+                pushed.append(entry)
 
     return pushed, cache
 

@@ -164,5 +164,55 @@ class TestVmArchMap(unittest.TestCase):
             self.assertNotIn("arch_suffix", settings)
 
 
+class TestListLocalImages(unittest.TestCase):
+    """Tests for _list_local_images() tag listing."""
+
+    def test_one_row_per_tag_no_duplicates(self):
+        # podman emits one JSON row per repo:tag, each with the image's
+        # full Names list -- a multi-tagged image must not repeat the
+        # first name, and every tag must appear (regression: :26.6.0
+        # shown twice, :latest never).
+        from unittest.mock import patch
+
+        from dbuild.detect import _list_local_images
+
+        names = [
+            "ghcr.io/daemonless/testapp:26.6.0",
+            "ghcr.io/daemonless/testapp:latest",
+        ]
+        rows = [
+            {"Id": "abc", "Names": names, "Size": 1000, "Created": 0,
+             "Labels": {"org.opencontainers.image.version": "26.6.0"}},
+            {"Id": "abc", "Names": names, "Size": 1000, "Created": 0,
+             "Labels": {"org.opencontainers.image.version": "26.6.0"}},
+            {"Id": "def", "Names": ["ghcr.io/daemonless/testapp:build-latest"],
+             "Size": 1000, "Created": 0, "Labels": {}},
+        ]
+        with patch("dbuild.podman.images", return_value=rows):
+            pushed, cache = _list_local_images(_cfg())
+
+        self.assertEqual(sorted(e["tag"] for e in pushed), ["26.6.0", "latest"])
+        self.assertEqual([e["tag"] for e in cache], ["build-latest"])
+
+    def test_foreign_names_ignored(self):
+        # Names from other repos/registries on the same image ID must not
+        # produce rows for this project.
+        from unittest.mock import patch
+
+        from dbuild.detect import _list_local_images
+
+        rows = [
+            {"Id": "abc",
+             "Names": ["ghcr.io/daemonless/testapp:latest",
+                       "localhost/testapp:dev"],
+             "Size": 1000, "Created": 0, "Labels": {}},
+        ]
+        with patch("dbuild.podman.images", return_value=rows):
+            pushed, cache = _list_local_images(_cfg())
+
+        self.assertEqual([e["tag"] for e in pushed], ["latest"])
+        self.assertEqual(cache, [])
+
+
 if __name__ == "__main__":
     unittest.main()
