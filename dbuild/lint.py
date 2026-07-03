@@ -250,6 +250,34 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             )
 
     if verbose:
+        print("  checking s6 ready signals")
+    for run_path in sorted(repo_path.glob("root/etc/services.d/*/run")):
+        try:
+            run_text = run_path.read_text()
+        except OSError:
+            continue
+        uses_ready = any(
+            "s6-ready-when" in line and not line.lstrip().startswith("#")
+            for line in run_text.splitlines()
+        )
+        if not uses_ready:
+            continue
+        service_dir = run_path.parent.relative_to(repo_path)
+        fd_file = run_path.parent / "notification-fd"
+        if not fd_file.is_file():
+            errors.append(
+                f"{service_dir}: run uses s6-ready-when but notification-fd is"
+                " missing — s6-ready-when signals readiness on FD 3, which s6"
+                " only opens when a notification-fd file containing '3' exists;"
+                " without it readiness is silently never signalled"
+            )
+        elif fd_file.read_text().strip() != "3":
+            errors.append(
+                f"{service_dir}/notification-fd: must contain '3'"
+                " (s6-ready-when signals readiness on FD 3)"
+            )
+
+    if verbose:
         print("  checking Containerfile")
     has_containerfile = any(
         (repo_path / name).exists()
