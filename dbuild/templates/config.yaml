@@ -17,7 +17,7 @@ build:
     - tag: pkg-latest
       containerfile: Containerfile.pkg
       args:
-        BASE_VERSION: "15-latest"
+        BASE_VERSION: "15.1-latest"
 {%- endif %}
 
 cit:

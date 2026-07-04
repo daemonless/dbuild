@@ -1,4 +1,4 @@
-FROM ghcr.io/daemonless/base:15
+FROM ghcr.io/daemonless/base:15.1
 
 # Install packages
 RUN pkg install -y \
