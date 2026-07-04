@@ -237,6 +237,14 @@ class Variant:
         "desc": "Override the per-image `cit: puid:` re-chown check for this variant "
                 "(e.g. `false` for a root image with no PUID/PGID remapping)",
     })
+    cache_prefix: str = field(default="/var/cache/dbuild", metadata={
+        "desc" : "Root prefix of cache directories when they are specified as relative path names."
+    })
+    cache_dirs: list[str] = field(default_factory=list, metadata={
+        "desc" : "Mount a host directory into containers when executing RUN instructions during the build "
+                 "(passed as --volume)",
+        "display_default" : "[]",
+    })
 
 
 @dataclass
@@ -758,6 +766,8 @@ def _parse_variants(data: dict[str, Any]) -> list[Variant]:
                 pkg_name=v.get("pkg_name"),
                 tag_desc=v.get("tag_desc"),
                 puid=v.get("puid"),
+                cache_prefix=v.get("cache_prefix", "/var/cache/dbuild"),
+                cache_dirs=v.get("cache_dirs", []),
             )
         )
     return variants

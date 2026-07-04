@@ -98,7 +98,7 @@ def _make_parser() -> argparse.ArgumentParser:
         "--no-cache",
         action="store_true",
         default=False,
-        help="disable build cache (passes --no-cache to podman build)",
+        help="disable build cache (passes --no-cache to podman build) and ignores cache directories.",
     )
     build_parser.add_argument(
         "-p", "--parallel",
