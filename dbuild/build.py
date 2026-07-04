@@ -62,6 +62,7 @@ def _build_variant(
     promote_local: bool = False,
 ) -> str:
     """Build one variant for one architecture.  Returns the build tag."""
+    extra_args = []
     freebsd_arch = _map_arch(arch)
     build_tag = (
         f"{variant.tag}{arch_tag_suffix(freebsd_arch)}"
@@ -97,6 +98,13 @@ def _build_variant(
     if os.environ.get("GITHUB_TOKEN"):
         secrets["github_token"] = "GITHUB_TOKEN"
 
+    # ---- cache directories ----
+    if not no_cache:
+        cache_prefix = variant.cache_prefix
+        for cache_dir in variant.cache_dirs:
+            cache_dir = os.path.join(cache_prefix, cache_dir)
+            extra_args.extend(["--volume", cache_dir])
+
     # ---- run the build ----
     log.timer_start(f"build:{variant.tag}")
     podman.build(
@@ -106,6 +114,7 @@ def _build_variant(
         secrets=secrets,
         prefix=prefix,
         no_cache=no_cache,
+        extra_args=extra_args,
     )
     log.timer_stop(f"build:{variant.tag}")
 
