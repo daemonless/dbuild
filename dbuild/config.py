@@ -496,6 +496,8 @@ def _global_extra_variants(base: Path, global_data: dict[str, Any]) -> list[Vari
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),
                 puid=v.get("puid"),
+                cache_prefix=v.get("cache_prefix", "/var/cache/dbuild"),
+                cache_dirs=v.get("cache_dirs", []),
             )
         )
 
