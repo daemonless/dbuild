@@ -75,6 +75,31 @@ jobs:
           export PYTHONPATH="$DBUILD_DIR"
           python3 -m dbuild detect --format github ${{ inputs.variant && format('--variant {0}', inputs.variant) || '' }}
 
+  # Advisory lint on PRs — reports dbuild lint findings to the job summary and
+  # never fails the check.
+  lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: dbuild lint (advisory)
+        run: |
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
+          export PYTHONPATH="$DBUILD_DIR"
+          {
+            echo '## dbuild lint (advisory — does not affect this check)'
+            echo ''
+            echo '```'
+            python3 -m dbuild lint 2>&1 || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
   build:
     needs: detect
     if: ${{ needs.detect.outputs.matrix != '' && needs.detect.outputs.compose_only != 'true' }}
