@@ -256,6 +256,17 @@ Source: dbuild templates
 {%- endif %}
 
 {{ description }}
+{%- if jail_allow %}
+
+{% if render_mode == "mkdocs" -%}
+!!! warning "Requires ocijail with annotation support (≥ 0.6.0)"
+
+    This image needs the jail permission{{ "s" if jail_allow | length > 1 else "" }} **{{ jail_allow | join(", ") }}**, applied via OCI annotations. FreeBSD **quarterly ships ocijail 0.4.0, which has no annotation support** — the container starts but the permission is silently dropped, so the app can crash or misbehave. Point your pkg repos at the `latest` branch (ocijail ≥ 0.6.0) and run with the annotation flag{{ "s" if jail_allow | length > 1 else "" }} shown below. See the [ocijail guide](/guides/ocijail-patch/).
+{%- else -%}
+> [!WARNING]
+> **Requires ocijail ≥ 0.6.0 (annotation support).** This image needs the jail permission{{ "s" if jail_allow | length > 1 else "" }} **{{ jail_allow | join(", ") }}**, applied via OCI annotations. FreeBSD **quarterly ships ocijail 0.4.0, which has no annotation support** — the container starts but the permission is silently dropped, so the app can crash or misbehave at runtime. Point your pkg repos at the `latest` branch (ocijail ≥ 0.6.0), then run with the annotation flag{{ "s" if jail_allow | length > 1 else "" }} below. See the [ocijail guide](https://daemonless.io/guides/ocijail-patch/).
+{%- endif %}
+{%- endif %}
 
 {%- if readme and readme.introduction %}
 
