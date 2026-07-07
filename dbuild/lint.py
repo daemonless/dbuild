@@ -250,6 +250,31 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             )
 
     if verbose:
+        print("  checking CI image_name")
+    for wf_name in ("build.yaml", "build.yml"):
+        wf_path = repo_path / ".github" / "workflows" / wf_name
+        if not wf_path.exists():
+            continue
+        try:
+            with open(wf_path) as f:
+                wf: dict[str, Any] = yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            warnings.append(f".github/workflows/{wf_name}: invalid YAML ({e})")
+            break
+        for job in (wf.get("jobs") or {}).values():
+            if not isinstance(job, dict):
+                continue
+            image_name = (job.get("with") or {}).get("image_name")
+            if image_name and image_name != repo_path.name:
+                warnings.append(
+                    f".github/workflows/{wf_name}: image_name={image_name!r} does"
+                    f" not match the directory name {repo_path.name!r} — the CI"
+                    " version-extract step and image tags derive from the"
+                    " directory name, so the version will silently disappear"
+                )
+        break
+
+    if verbose:
         print("  checking s6 ready signals")
     for run_path in sorted(repo_path.glob("root/etc/services.d/*/run")):
         try:
