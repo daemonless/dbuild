@@ -212,5 +212,26 @@ def _no_env(key: str):
             os.environ[key] = prev
 
 
+class TestNormalizeBaseVersion(unittest.TestCase):
+    """_normalize_base_version turns a BASE_VERSION arg (possibly a pkg tag)
+    into the FreeBSD release shown as '**Base:** FreeBSD <x>'."""
+
+    def test_strips_pkg_and_latest_suffixes(self):
+        cases = {
+            "15-pkg": "15",
+            "15.1-latest": "15.1",
+            "15.1-pkg-latest": "15.1",
+            "15.1": "15.1",  # plain release unchanged
+            '"15.1"': "15.1",  # quoted arg
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(docs._normalize_base_version(raw), expected, raw)
+
+    def test_bare_latest_and_empty_fall_back(self):
+        self.assertEqual(docs._normalize_base_version("latest"), "15.1")
+        self.assertEqual(docs._normalize_base_version(""), "15.1")
+        self.assertEqual(docs._normalize_base_version("  "), "15.1")
+
+
 if __name__ == "__main__":
     unittest.main()

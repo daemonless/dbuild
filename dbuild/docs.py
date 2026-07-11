@@ -279,6 +279,18 @@ def _collect_screenshots(base: Path) -> list[str]:
     )
 
 
+def _normalize_base_version(raw: str, default: str = "15.1") -> str:
+    """Turn a BASE_VERSION arg (which may be a pkg tag) into a FreeBSD release:
+    '15-pkg' -> '15', '15.1-latest' -> '15.1', '15.1-pkg-latest' -> '15.1',
+    bare 'latest'/'' -> default. Suffix order matters (-pkg-latest first)."""
+    v = raw.strip().strip('"\'')
+    for suffix in ("-pkg-latest", "-pkg", "-latest"):
+        if v.endswith(suffix):
+            v = v[: -len(suffix)]
+            break
+    return v if v and v != "latest" else default
+
+
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
     """Build a context dict for templates with enriched env/vol/port data from Config."""
     meta = cfg.metadata
@@ -318,7 +330,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         import re
         match = re.search(r"ARG BASE_VERSION=(.*)", cf_path.read_text())
         if match:
-            base_version = match.group(1).strip()
+            base_version = _normalize_base_version(match.group(1))
 
     context = {
         "name": cfg.image,
