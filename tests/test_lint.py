@@ -148,5 +148,73 @@ class TestReadySignal(unittest.TestCase):
         self.assertEqual(ready_errors, [])
 
 
+class TestVersionStripSed(unittest.TestCase):
+    """Lint errors when a Containerfile version line seds away the _N
+    port revision (causes permanent false 'outdated image' alerts)."""
+
+    def _repo_with_containerfile(self, root: Path, text: str, name="Containerfile") -> Path:
+        repo = _make_repo(root, "cit:\n  port: 8080\n")
+        (repo / name).write_text(text)
+        return repo
+
+    def _version_errors(self, text: str, name="Containerfile") -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._repo_with_containerfile(Path(d), text, name)
+            errors, _ = lint_repo(repo)
+        return [e for e in errors if "port revision" in e]
+
+    def test_revision_strip_errors(self):
+        errs = self._version_errors(
+            "FROM scratch\n"
+            "RUN pkg query '%v' playwright-core | sed 's/_[0-9]*$//' > /app/version\n"
+        )
+        self.assertTrue(errs, "Expected version-strip error")
+        self.assertIn("Containerfile:2", errs[0])
+
+    def test_extended_regex_strip_errors(self):
+        errs = self._version_errors(
+            "RUN pkg query '%v' foo | sed -E 's/_[0-9]+$//' > /app/version\n"
+        )
+        self.assertTrue(errs, "Expected version-strip error")
+
+    def test_j2_template_also_checked(self):
+        errs = self._version_errors(
+            "RUN pkg query '%v' foo | sed 's/_[0-9]*$//' > /app/version\n",
+            name="Containerfile.pkg.j2",
+        )
+        self.assertTrue(errs, "Expected version-strip error in .j2 template")
+
+    def test_bare_pkg_query_ok(self):
+        errs = self._version_errors(
+            "RUN pkg query '%v' headscale > /app/version\n"
+        )
+        self.assertEqual(errs, [])
+
+    def test_legit_version_seds_ok(self):
+        # Real fleet patterns that must NOT be flagged
+        errs = self._version_errors(
+            "RUN echo \"${VERSION}\" | sed -n 's/^v\\(.*\\)$/\\1/p' > /app/version\n"
+            "RUN pkg info authelia | sed -n 's/.*Version.*: *//p' > /app/version\n"
+            "RUN plex --version | tr -d 'v' > /app/version\n"
+            "RUN pkg info gohugo | sed -n 's/.*Version.*: *//p' | tr ',' '_' > /app/version\n"
+        )
+        self.assertEqual(errs, [])
+
+    def test_strip_sed_elsewhere_ok(self):
+        # Config-rewriting seds not touching /app/version are fine
+        errs = self._version_errors(
+            "RUN sed -i '' 's/_[0-9]*$//' /app/config.ini\n"
+            "RUN echo 1.2.3 > /app/version\n"
+        )
+        self.assertEqual(errs, [])
+
+    def test_commented_line_ok(self):
+        errs = self._version_errors(
+            "# RUN pkg query '%v' foo | sed 's/_[0-9]*$//' > /app/version\n"
+        )
+        self.assertEqual(errs, [])
+
+
 if __name__ == "__main__":
     unittest.main()

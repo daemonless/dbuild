@@ -6,6 +6,7 @@ Otherwise lints all subdirectories (e.g. run from the workspace root).
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,11 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore[assignment]
+
+# sed substitution deleting an underscore-led suffix, e.g. s/_[0-9]*$//
+# — the port-revision strip. Legit version-line seds (s/^v...//, pkg info
+# parsing) don't start their pattern with '_'.
+_VERSION_STRIP_RE = re.compile(r"s/_[^/]*//")
 
 REQUIRED_X_DAEMONLESS_FIELDS = [
     "title",
@@ -301,6 +307,26 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                 f"{service_dir}/notification-fd: must contain '3'"
                 " (s6-ready-when signals readiness on FD 3)"
             )
+
+    if verbose:
+        print("  checking version-strip sed")
+    for cf_path in sorted(repo_path.glob("Containerfile*")):
+        try:
+            cf_lines = cf_path.read_text().splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(cf_lines, 1):
+            if "/app/version" not in line or line.lstrip().startswith("#"):
+                continue
+            if "sed" in line and _VERSION_STRIP_RE.search(line):
+                errors.append(
+                    f"{cf_path.name}:{i}: version line strips the trailing"
+                    " _N port revision — the revision is part of the real"
+                    " package version, and stripping it makes the image"
+                    " version permanently disagree with the repo, causing"
+                    " false 'outdated image' alerts. Write the bare"
+                    " pkg query '%v' output to /app/version"
+                )
 
     if verbose:
         print("  checking Containerfile")
