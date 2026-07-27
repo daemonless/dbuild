@@ -1,4 +1,4 @@
 """dbuild: FreeBSD OCI container image build tool.
 """
 
-VERSION = "1.9.6"
+VERSION = "1.9.7"

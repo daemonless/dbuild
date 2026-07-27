@@ -447,9 +447,13 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             root_var = CONFIG_ROOT_VAR
             placeholder = f"@{cfg.image.upper().replace('-', '_')}_{clean_src.upper().replace('-', '_')}_PATH@"
         else:
-            source_path = f"{cfg.image}{tgt}"
+            subdir = tgt.rstrip("/").split("/")[-1]
+            if len(cfg.volumes) == 1 and subdir in ("config", "data"):
+                source_path = cfg.image
+            else:
+                source_path = f"{cfg.image}/{subdir}"
             root_var = CONFIG_ROOT_VAR
-            placeholder = f"@{cfg.image.upper().replace('-', '_')}_{clean_target}_PATH@"
+            placeholder = f"@{cfg.image.upper().replace('-', '_')}_{subdir.upper().replace('-', '_')}_PATH@"
 
         context["volumes"].append({
             "path": tgt,
