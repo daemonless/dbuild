@@ -585,14 +585,15 @@ _DEPRECATED_ABSENT = object()
 def _parse_appjail(meta: dict[str, Any]) -> dict[str, Any] | None:
     """Parse appjail from x-daemonless metadata.
 
-    - Key absent → None (disabled)
+    - Key absent → {} (enabled by default, template defaults)
     - ``appjail:`` (bare/null) or ``appjail: true`` → {} (enabled, template defaults)
+    - ``appjail: false`` → None (explicitly disabled)
     - ``appjail: {director: ...}`` → that dict (enabled, custom config)
     """
     raw = meta.get("appjail", _APPJAIL_ABSENT)
-    if raw is _APPJAIL_ABSENT:
+    if raw is False:
         return None
-    if raw is None or raw is True or raw == {}:
+    if raw is _APPJAIL_ABSENT or raw is None or raw is True or raw == {}:
         return {}
     return raw
 
