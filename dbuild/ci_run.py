@@ -72,18 +72,23 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         log.success("CI pipeline complete (PR)")
         return 0
 
+    # ── SBOM ─────────────────────────────────────────────────────────
+    # Runs BEFORE push and embeds into the image so the pushed artifact
+    # carries its own /usr/share/sbom/ docs.
+    log.step("CI: SBOM")
+    if not getattr(args, "format", None):
+        args.format = "all"
+    args.embed = True
+    rc = sbom.run(cfg, args)
+    if rc and rc != 0:
+        log.error("SBOM generation failed")
+        return rc
+
     # ── Push ─────────────────────────────────────────────────────────
     log.step("CI: Push")
     rc = push.run(cfg, args)
     if rc and rc != 0:
         log.error("Push failed")
-        return rc
-
-    # ── SBOM ─────────────────────────────────────────────────────────
-    log.step("CI: SBOM")
-    rc = sbom.run(cfg, args)
-    if rc and rc != 0:
-        log.error("SBOM generation failed")
         return rc
 
     log.success("CI pipeline complete")

@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-07-27" "dbuild 1.9.7" "User Commands"
+.TH DBUILD 1 "2026-08-01" "dbuild 1.9.8" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -239,7 +239,7 @@ override target architecture (e.g. amd64, aarch64)
 .RE
 .TP
 \fBsbom\fR
-Generate a CycloneDX SBOM via trivy and pkg query.
+Generate SBOMs (daemonless-native + CycloneDX 1.6 / SPDX 2.3 JSON) via trivy and pkg query.
 .RS
 .TP
 \fB-h\fR, \fB--help\fR
@@ -250,6 +250,12 @@ filter to a single variant by tag (e.g. latest, pkg)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
+.TP
+\fB--format\fR
+comma-separated output formats: daemonless, cyclonedx, spdx, all (default: daemonless,cyclonedx)
+.TP
+\fB--embed\fR
+bake the CycloneDX/SPDX docs into the image at /usr/share/sbom/ (run before push so the pushed image ships them)
 .RE
 .TP
 \fBscreenshot\fR

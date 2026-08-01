@@ -424,6 +424,14 @@ def bah_config(
     _run(cmd)
 
 
+def bah_copy(container_id: str, src: str, dest: str) -> None:
+    """Copy a host file/dir into a working container at *dest*.
+
+    ``buildah copy`` creates intermediate directories as needed.
+    """
+    _run(["buildah", "copy", container_id, src, dest])
+
+
 def bah_commit(container_id: str, image: str) -> str:
     """Commit a working container as an image.  Returns image ID."""
     result = _run(["buildah", "commit", container_id, image])

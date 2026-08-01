@@ -16,7 +16,7 @@ license = {text = "BSD-2-Clause"}
 
 [project.optional-dependencies]
 screenshot = ["selenium>=4", "scikit-image>=0.23"]
-dev = ["pytest>=7", "ruff>=0.9"]
+dev = ["pytest>=7", "ruff>=0.9", "jsonschema>=4", "referencing>=0.30"]
 
 [project.scripts]
 dbuild = "dbuild.cli:main"

@@ -180,10 +180,24 @@ def _make_parser() -> argparse.ArgumentParser:
     sbom_parser = sub.add_parser(
         "sbom",
         help="generate SBOM for built image(s)",
-        description="Generate a CycloneDX SBOM via trivy and pkg query.",
+        description="Generate SBOMs (daemonless-native + CycloneDX 1.6 / "
+        "SPDX 2.3 JSON) via trivy and pkg query.",
     )
     sbom_parser.add_argument("--variant", **variant_kw)
     sbom_parser.add_argument("--arch", **arch_kw)
+    sbom_parser.add_argument(
+        "--format",
+        default="daemonless,cyclonedx",
+        metavar="LIST",
+        help="comma-separated output formats: daemonless, cyclonedx, spdx, "
+        "all (default: daemonless,cyclonedx)",
+    )
+    sbom_parser.add_argument(
+        "--embed",
+        action="store_true",
+        help="bake the CycloneDX/SPDX docs into the image at "
+        "/usr/share/sbom/ (run before push so the pushed image ships them)",
+    )
 
     # -- manifest --
     sub.add_parser(
