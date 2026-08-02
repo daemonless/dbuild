@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: ''
+      generate:
+        description: 'Run dbuild generate before build/commit to keep Containerfile*/README.md in sync with templates'
+        required: false
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -126,6 +131,15 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Generate Containerfile/README from templates
+        if: inputs.generate
+        run: |
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
+          export PYTHONPATH="$DBUILD_DIR"
+          pip install -q PyYAML jinja2
+          python3 -m dbuild generate
 
       - name: Download pre-build artifact
         if: inputs.pre_artifact_name != ''
@@ -501,7 +515,21 @@ jobs:
           echo "Tags: $(jq -r '.tags | keys | join(", ")' sbom.json)"
           jq -r '.tags | to_entries[] | "\(.key): \(.value.summary.total) packages"' sbom.json
 
-      - name: Commit SBOM
+      - name: Generate Containerfile/README from templates
+        id: generate
+        if: inputs.generate
+        run: |
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
+          export PYTHONPATH="$DBUILD_DIR"
+          pip install -q PyYAML jinja2
+          # "=== Generated <name> ===" is dbuild's own step log for each file
+          # it writes (Containerfile, Containerfile.pkg, Containerfile.krb,
+          # README.md, ...) -- parse it instead of guessing variant names.
+          FILES=$(python3 -m dbuild generate | tee /dev/stderr | sed -n 's/^=== Generated \(.*\) ===$/\1/p')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Commit SBOM and generated files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -509,14 +537,22 @@ jobs:
           # package lists actually changed, so no-op rebuilds stay silent.
           git show HEAD:sbom.json 2>/dev/null | jq -S 'del(.generated)' > /tmp/sbom-old.json || echo '{}' > /tmp/sbom-old.json
           jq -S 'del(.generated)' sbom.json > /tmp/sbom-new.json
-          if cmp -s /tmp/sbom-old.json /tmp/sbom-new.json; then
-            echo "No content change to sbom.json"
+          SBOM_CHANGED=1
+          cmp -s /tmp/sbom-old.json /tmp/sbom-new.json && SBOM_CHANGED=0
+
+          git add sbom.json
+          for f in ${{ steps.generate.outputs.files }}; do
+            [ -f "$f" ] && git add "$f"
+          done
+
+          if [ "$SBOM_CHANGED" = 0 ] && git diff --cached --quiet; then
+            echo "No content change to sbom.json or generated files"
             exit 0
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add sbom.json
-          git commit -m "Update sbom.json [skip ci]"
+          git commit -m "Update sbom.json and generated files [skip ci]"
           git pull --rebase origin main
           git push
 
