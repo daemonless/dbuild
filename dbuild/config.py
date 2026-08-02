@@ -109,6 +109,22 @@ def arch_tag_suffix(arch: str) -> str:
     return "" if arch == "amd64" else f"-{arch}"
 
 
+# ── Variant filtering ────────────────────────────────────────────────
+# Single source of truth for `--variant`, shared by every subcommand that
+# filters variants by tag (build, test, push, promote, sbom, manifest,
+# detect, prune). Accepts a comma-separated list, not just a single tag.
+
+def variant_filter_matches(tag: str, filter_value: str | None) -> bool:
+    """Return True if *tag* is selected by a `--variant` filter value.
+
+    No filter (None/empty) selects everything. Otherwise the filter is a
+    comma-separated list of tags, e.g. ``--variant pkg,pkg-latest``.
+    """
+    if not filter_value:
+        return True
+    return tag in {v.strip() for v in filter_value.split(",")}
+
+
 # ── Dataclasses ──────────────────────────────────────────────────────
 
 @dataclass

@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dbuild import log, podman
-from dbuild.config import AppTestConfig, Config, Variant
+from dbuild.config import AppTestConfig, Config, Variant, variant_filter_matches
 from dbuild.container_backend import AppJailBackend, ContainerBackend, PodmanBackend
 
 # ── Cleanup registry (survives SIGTERM) ───────────────────────────────
@@ -915,7 +915,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
     # -- Variant resolution (optional for compose) --
     variant = None
     for v in cfg.variants:
-        if variant_filter and v.tag != variant_filter:
+        if not variant_filter_matches(v.tag, variant_filter):
             continue
         variant = v
         break
@@ -1245,7 +1245,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     # each other (the single-run case keeps the exact path given).
     matching = [
         v for v in cfg.variants
-        if not variant_filter or v.tag == variant_filter
+        if variant_filter_matches(v.tag, variant_filter)
     ]
 
     for force_backend in backends:

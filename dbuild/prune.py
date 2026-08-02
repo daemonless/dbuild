@@ -40,26 +40,34 @@ def _collect_cit_jails(image_name: str) -> list[str]:
         return []
 
 
-def _collect_build_images(full_image: str, variant: str | None) -> list[str]:
+def _collect_build_images(full_image: str, variant_filter: str | None) -> list[str]:
     """Find build-tagged images for this project.
+
+    *variant_filter* may be a single tag or a comma-separated list; each
+    is queried separately since podman's reference filter takes one glob.
 
     Returns a list of fully-qualified image references like
     ``ghcr.io/daemonless/radarr:build-latest``.
     """
-    tag_pat = f"build-{variant}" if variant else "build-*"
-    try:
-        imgs = podman.images(f"reference={full_image}:{tag_pat}")
-    except Exception:
-        return []
+    tags = [t.strip() for t in variant_filter.split(",")] if variant_filter else [None]
 
     refs: list[str] = []
-    for img in imgs:
-        for name in (img.get("Names") or []):
-            # Guard: must belong to this project and be a build- tag
-            repo, _, tag = name.rpartition(":")
-            if repo == full_image and tag.startswith("build-"):
-                refs.append(name)
-                break
+    seen: set[str] = set()
+    for tag in tags:
+        tag_pat = f"build-{tag}" if tag else "build-*"
+        try:
+            imgs = podman.images(f"reference={full_image}:{tag_pat}")
+        except Exception:
+            continue
+
+        for img in imgs:
+            for name in (img.get("Names") or []):
+                # Guard: must belong to this project and be a build- tag
+                repo, _, img_tag = name.rpartition(":")
+                if repo == full_image and img_tag.startswith("build-") and name not in seen:
+                    seen.add(name)
+                    refs.append(name)
+                    break
     return refs
 
 

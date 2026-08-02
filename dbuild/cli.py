@@ -48,10 +48,11 @@ def _make_parser() -> argparse.ArgumentParser:
         help="enable debug logging",
     )
     parser.add_argument(
-        "--variant",
+        "--variants", "--variant",
+        dest="variant",
         metavar="TAG",
         default=None,
-        help="filter to a single variant by tag (e.g. latest, pkg)",
+        help="filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)",
     )
     parser.add_argument(
         "--arch",
@@ -81,8 +82,8 @@ def _make_parser() -> argparse.ArgumentParser:
 
     # Shared options that can appear after the subcommand too.
     # Use SUPPRESS so subcommand defaults don't overwrite global values.
-    variant_kw = {"metavar": "TAG", "default": argparse.SUPPRESS,
-                  "help": "filter to a single variant by tag (e.g. latest, pkg)"}
+    variant_kw = {"dest": "variant", "metavar": "TAG", "default": argparse.SUPPRESS,
+                  "help": "filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)"}
     arch_kw = {"metavar": "ARCH", "default": argparse.SUPPRESS,
                "help": "override target architecture (e.g. amd64, aarch64)"}
 
@@ -92,7 +93,7 @@ def _make_parser() -> argparse.ArgumentParser:
         help="build container image(s) for all (or selected) variants",
         description="Build container images from Containerfiles.",
     )
-    build_parser.add_argument("--variant", **variant_kw)
+    build_parser.add_argument("--variants", "--variant", **variant_kw)
     build_parser.add_argument("--arch", **arch_kw)
     build_parser.add_argument(
         "--no-cache",
@@ -128,7 +129,7 @@ def _make_parser() -> argparse.ArgumentParser:
         help="run CIT tests against built image(s)",
         description="Run container integration tests against built images.",
     )
-    test_parser.add_argument("--variant", **variant_kw)
+    test_parser.add_argument("--variants", "--variant", **variant_kw)
     test_parser.add_argument(
         "--json",
         metavar="FILE",
@@ -160,7 +161,7 @@ def _make_parser() -> argparse.ArgumentParser:
         help="push built image(s) to the registry",
         description="Tag and push built images to the configured registry.",
     )
-    push_parser.add_argument("--variant", **variant_kw)
+    push_parser.add_argument("--variants", "--variant", **variant_kw)
     push_parser.add_argument("--arch", **arch_kw)
 
     # -- promote --
@@ -173,7 +174,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "`dbuild build` (and optionally `dbuild test`) first."
         ),
     )
-    promote_parser.add_argument("--variant", **variant_kw)
+    promote_parser.add_argument("--variants", "--variant", **variant_kw)
     promote_parser.add_argument("--arch", **arch_kw)
 
     # -- sbom --
@@ -183,7 +184,7 @@ def _make_parser() -> argparse.ArgumentParser:
         description="Generate SBOMs (daemonless-native + CycloneDX 1.6 / "
         "SPDX 2.3 JSON) via trivy and pkg query.",
     )
-    sbom_parser.add_argument("--variant", **variant_kw)
+    sbom_parser.add_argument("--variants", "--variant", **variant_kw)
     sbom_parser.add_argument("--arch", **arch_kw)
     sbom_parser.add_argument(
         "--format",
@@ -215,7 +216,7 @@ def _make_parser() -> argparse.ArgumentParser:
             "build-tagged images, and /tmp/dbuild-cit-* files for the current project."
         ),
     )
-    prune_parser.add_argument("--variant", **variant_kw)
+    prune_parser.add_argument("--variants", "--variant", **variant_kw)
     prune_parser.add_argument(
         "-n", "--dry-run",
         action="store_true",
@@ -397,7 +398,7 @@ def _make_parser() -> argparse.ArgumentParser:
         help="capture a baseline screenshot for CIT comparison",
         description="Start a container, wait for it to be ready, and capture a baseline screenshot.",
     )
-    baseline_parser.add_argument("--variant", **variant_kw)
+    baseline_parser.add_argument("--variants", "--variant", **variant_kw)
     baseline_parser.add_argument(
         "-o", "--output",
         metavar="FILE",
@@ -432,7 +433,7 @@ def _make_parser() -> argparse.ArgumentParser:
         help="run full CI pipeline (build -> test -> push -> sbom)",
         description="Run the complete CI/CD pipeline for all (or selected) variants.",
     )
-    ci_run_parser.add_argument("--variant", **variant_kw)
+    ci_run_parser.add_argument("--variants", "--variant", **variant_kw)
     ci_run_parser.add_argument("--arch", **arch_kw)
     ci_run_parser.add_argument(
         "--prepare",

@@ -21,7 +21,7 @@ import os
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config, Variant, arch_tag_suffix
+from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
 
 
 def _version_tag(version: str, variant_tag: str) -> str:
@@ -166,7 +166,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     pushed: list[str] = []
 
     for variant in cfg.variants:
-        if variant_filter and variant.tag != variant_filter:
+        if not variant_filter_matches(variant.tag, variant_filter):
             continue
         _push_variant(
             cfg,

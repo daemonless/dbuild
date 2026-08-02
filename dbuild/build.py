@@ -21,7 +21,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dbuild import labels, log, podman, version
-from dbuild.config import Config, Variant, arch_tag_suffix
+from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
 
 # ── Architecture mapping ─────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
 
     variants = [
         v for v in cfg.variants
-        if not variant_filter or v.tag == variant_filter
+        if variant_filter_matches(v.tag, variant_filter)
     ]
 
     if not variants:

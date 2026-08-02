@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 
 from dbuild import log
-from dbuild.config import Config
+from dbuild.config import Config, variant_filter_matches
 from dbuild.push import _local_tag_variant
 
 
@@ -36,7 +36,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
 
     variants = [
         v for v in cfg.variants
-        if not variant_filter or v.tag == variant_filter
+        if variant_filter_matches(v.tag, variant_filter)
     ]
 
     if not variants:

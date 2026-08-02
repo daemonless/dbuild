@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from dbuild import VERSION, log, podman
-from dbuild.config import Config, Variant, arch_tag_suffix
+from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
 
 # Package type categories extracted from Trivy output.
 _TRIVY_PKG_TYPES: dict[str, list[str]] = {
@@ -521,7 +521,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     generated: list[str] = []
 
     for variant in cfg.variants:
-        if variant_filter and variant.tag != variant_filter:
+        if not variant_filter_matches(variant.tag, variant_filter):
             continue
 
         sbom = _generate_sbom(cfg, variant, arch)

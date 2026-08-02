@@ -15,7 +15,7 @@ from typing import Any
 
 from dbuild import ci as ci_mod
 from dbuild import log
-from dbuild.config import Config, arch_tag_suffix
+from dbuild.config import Config, arch_tag_suffix, variant_filter_matches
 
 # Map architecture → vmactions settings for GitHub Actions FreeBSD VM.
 # The tag suffix is NOT stored here — it comes from `config.arch_tag_suffix`
@@ -37,7 +37,7 @@ def _build_matrix(cfg: Config, args: argparse.Namespace) -> list[dict[str, Any]]
     arch_filter: str | None = getattr(args, "arch", None)
 
     for variant in cfg.variants:
-        if variant_filter and variant.tag != variant_filter:
+        if not variant_filter_matches(variant.tag, variant_filter):
             continue
         for arch in cfg.architectures:
             if arch_filter and arch != arch_filter:

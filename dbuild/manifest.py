@@ -18,7 +18,7 @@ import subprocess
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config, arch_tag_suffix
+from dbuild.config import Config, arch_tag_suffix, variant_filter_matches
 
 # ── Architecture tag suffix convention ────────────────────────────────
 # Uses the shared `config.arch_tag_suffix` so the tags created by `push`
@@ -206,7 +206,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     variant_filter: str | None = getattr(args, "variant", None)
 
     for variant in cfg.variants:
-        if variant_filter and variant.tag != variant_filter:
+        if not variant_filter_matches(variant.tag, variant_filter):
             continue
         if variant.tag not in all_tags:
             all_tags.append(variant.tag)
