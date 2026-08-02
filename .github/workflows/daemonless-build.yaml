@@ -526,7 +526,7 @@ jobs:
           # "=== Generated <name> ===" is dbuild's own step log for each file
           # it writes (Containerfile, Containerfile.pkg, Containerfile.krb,
           # README.md, ...) -- parse it instead of guessing variant names.
-          FILES=$(python3 -m dbuild generate | tee /dev/stderr | sed -n 's/^=== Generated \(.*\) ===$/\1/p')
+          FILES=$(python3 -m dbuild generate | tee /dev/stderr | sed -n 's/^=== Generated \(.*\) ===$/\1/p' | tr '\n' ' ')
           echo "files=$FILES" >> "$GITHUB_OUTPUT"
 
       - name: Commit SBOM and generated files
