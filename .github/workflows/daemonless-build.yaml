@@ -40,7 +40,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  DBUILD_REF: v1.9.8
+  DBUILD_REF: v1.9.9
 
 jobs:
   # Detect which variants exist and build dynamic matrix
@@ -589,19 +589,25 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          # Each artifact dir is named sbom-<tag><arch_suffix>; the matching
-          # pushed image is ghcr.io/daemonless/<image>:<tag><arch_suffix>.
-          for dir in sbom-artifacts/sbom-*/; do
-            tag="${dir#sbom-artifacts/sbom-}"; tag="${tag%/}"
+          # actions/download-artifact only nests matched artifacts under a
+          # per-artifact subdirectory when 2+ artifacts match the pattern --
+          # with exactly one match (single-variant images) it flattens the
+          # files straight into sbom-artifacts/, so a dir-name-based glob
+          # silently matches nothing there. Parse the tag out of each SBOM
+          # filename instead (dbuild/sbom.py writes
+          # <image>-<tag><arch_suffix>-cyclonedx.json / -spdx.json), which
+          # works regardless of nesting.
+          for f in $(find sbom-artifacts -name "${IMAGE_NAME}-*-cyclonedx.json" -o -name "${IMAGE_NAME}-*-spdx.json"); do
+            base="$(basename "$f")"
+            rest="${base#"${IMAGE_NAME}"-}"
+            if [[ "$rest" == *-cyclonedx.json ]]; then
+              tag="${rest%-cyclonedx.json}"; predicate_type="cyclonedx"
+            else
+              tag="${rest%-spdx.json}"; predicate_type="spdxjson"
+            fi
             ref="ghcr.io/daemonless/${IMAGE_NAME}:${tag}"
-            echo "=== Attesting SBOMs onto ${ref} ==="
-            for f in $(find "$dir" -name '*-cyclonedx.json'); do
-              cosign attest --yes --type cyclonedx --predicate "$f" "$ref"
-            done
-            # spdxjson (JSON), not spdx (which is the tag-value serialization).
-            for f in $(find "$dir" -name '*-spdx.json'); do
-              cosign attest --yes --type spdxjson --predicate "$f" "$ref"
-            done
+            echo "=== Attesting ${predicate_type} SBOM onto ${ref} (${f}) ==="
+            cosign attest --yes --type "$predicate_type" --predicate "$f" "$ref"
           done
 
   # Trigger status page update after successful builds
