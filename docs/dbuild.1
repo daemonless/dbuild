@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-08-01" "dbuild 1.9.8" "User Commands"
+.TH DBUILD 1 "2026-08-03" "dbuild 1.9.8" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -15,8 +15,8 @@ Start a container, wait for it to be ready, and capture a baseline screenshot.
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB-o\fR, \fB--output\fR
 save screenshot to FILE (default: .daemonless/baseline.png)
@@ -29,8 +29,8 @@ Build container images from Containerfiles.
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
@@ -66,8 +66,8 @@ Run the complete CI/CD pipeline for all (or selected) variants.
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
@@ -135,6 +135,9 @@ show this help message and exit
 \fB--freebsd-port\fR
 initialize from a FreeBSD port (e.g. net-p2p/bazarr)
 .TP
+\fB--flavors\fR
+comma-separated FreeBSD port FLAVORS to scaffold (e.g. lua,wolfssl); crossed with --variants into one tag per combination (e.g. pkg-lua, pkg-wolfssl)
+.TP
 \fB--name\fR
 application name (e.g. radarr)
 .TP
@@ -200,8 +203,8 @@ Tag already-built build-{tag} images with their final tag, aliases, and version 
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
@@ -214,8 +217,8 @@ Find and remove leftover CIT containers (Podman), jails (AppJail), build-tagged 
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB-n\fR, \fB--dry-run\fR
 show what would be removed without removing anything
@@ -231,8 +234,8 @@ Tag and push built images to the configured registry.
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
@@ -245,8 +248,8 @@ Generate SBOMs (daemonless-native + CycloneDX 1.6 / SPDX 2.3 JSON) via trivy and
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
@@ -273,8 +276,8 @@ Run container integration tests against built images.
 \fB-h\fR, \fB--help\fR
 show this help message and exit
 .TP
-\fB--variant\fR
-filter to a single variant by tag (e.g. latest, pkg)
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--json\fR
 write test result JSON to FILE

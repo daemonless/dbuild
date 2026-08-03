@@ -340,6 +340,46 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
     if not has_containerfile:
         errors.append("Missing Containerfile")
 
+    if verbose:
+        print("  checking for stale base images")
+    for cf_path in sorted(repo_path.glob("Containerfile*")):
+        try:
+            cf_text = cf_path.read_text()
+        except OSError:
+            continue
+        if "BASE_VERSION=15.0" in cf_text or "base:15.0" in cf_text:
+            warnings.append(f"{cf_path.name} uses stale FreeBSD 15.0 baseline — update to 15.1")
+
+    if verbose:
+        print("  checking for stale generated files (drift check)")
+    from dbuild.docs import check_repo
+    stale_files, _ = check_repo(repo_path)
+    for stale_msg in stale_files:
+        warnings.append(f"Stale generated file: {stale_msg}")
+
+    if verbose:
+        print("  checking for stale baseline images")
+    if config_path.exists():
+        valid_tags: set[str] = set()
+        for v in config.get("build", {}).get("variants", []):
+            valid_tags.add(str(v.get("tag", "")))
+            valid_tags.update(str(a) for a in (v.get("aliases", []) or []))
+        for baseline_dir in (
+            repo_path / ".daemonless",
+            repo_path / ".daemonless" / "baselines",
+        ):
+            if not baseline_dir.is_dir():
+                continue
+            for baseline_file in sorted(baseline_dir.glob("baseline-*.png")):
+                tag = baseline_file.stem[len("baseline-"):]
+                if tag not in valid_tags:
+                    rel = baseline_file.relative_to(repo_path)
+                    warnings.append(
+                        f"{rel}: baseline image for tag '{tag}' has no"
+                        " matching build variant (or alias) — likely stale"
+                        " from a removed/renamed variant, safe to remove"
+                    )
+
     return errors, warnings
 
 

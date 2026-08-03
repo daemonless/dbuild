@@ -249,7 +249,7 @@ class TestUpstreamAssetWarnings(unittest.TestCase):
         self.assertTrue(any("non-square" in w for w in warnings))
 
     def test_logo_warnings_close_to_square(self):
-        # 100x120 png (ratio 0.833, within new 0.8 - 1.25 range)
+        # 100x120 png (ratio 0.833, within the 0.6 - 1.6667 range)
         png_data = (
             b"\x89PNG\r\n\x1a\n"
             b"\x00\x00\x00\x0dIHDR"

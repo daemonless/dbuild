@@ -284,6 +284,15 @@ def _make_parser() -> argparse.ArgumentParser:
         help="initialize from a FreeBSD port (e.g. net-p2p/bazarr)",
     )
     init_parser.add_argument(
+        "--flavors",
+        metavar="LIST",
+        help=(
+            "comma-separated FreeBSD port FLAVORS to scaffold "
+            "(e.g. lua,wolfssl); crossed with --variants into one tag "
+            "per combination (e.g. pkg-lua, pkg-wolfssl)"
+        ),
+    )
+    init_parser.add_argument(
         "--name",
         metavar="NAME",
         help="application name (e.g. radarr)",

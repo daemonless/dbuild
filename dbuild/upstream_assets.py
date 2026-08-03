@@ -75,8 +75,8 @@ _LOGO_MIME_EXT: dict[str, str] = {
     "image/svg+xml":  ".svg",
     "image/png":      ".png",
 }
-_LOGO_MIN_ASPECT_RATIO = 0.8
-_LOGO_MAX_ASPECT_RATIO = 1.25
+_LOGO_MIN_ASPECT_RATIO = 0.6
+_LOGO_MAX_ASPECT_RATIO = 1.6667
 _LOGO_MAX_SIZE = 150 * 1024  # bytes
 
 

@@ -216,5 +216,86 @@ class TestVersionStripSed(unittest.TestCase):
         self.assertEqual(errs, [])
 
 
+class TestStaleBaseline(unittest.TestCase):
+    """Lint warns when a baseline-<tag>.png has no matching build variant."""
+
+    def _repo_with_baselines(self, root: Path, config_yaml: str, filenames: list[str],
+                              in_subdir: bool = False) -> Path:
+        repo = _make_repo(root, config_yaml)
+        target = repo / ".daemonless"
+        if in_subdir:
+            target = target / "baselines"
+            target.mkdir()
+        for name in filenames:
+            (target / name).write_bytes(b"")
+        return repo
+
+    def test_stale_baseline_warns(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._repo_with_baselines(
+                Path(d),
+                "build:\n  variants:\n    - tag: 15\n",
+                ["baseline-14-pkg-latest.png"],
+            )
+            _, warnings = lint_repo(repo)
+        self.assertTrue(
+            any("baseline-14-pkg-latest.png" in w and "stale" in w for w in warnings),
+            f"Expected stale baseline warning, got: {warnings}",
+        )
+
+    def test_current_tag_baseline_no_warn(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._repo_with_baselines(
+                Path(d),
+                "build:\n  variants:\n    - tag: 15\n",
+                ["baseline-15.png"],
+            )
+            _, warnings = lint_repo(repo)
+        baseline_warns = [w for w in warnings if "baseline-15.png" in w]
+        self.assertEqual(baseline_warns, [])
+
+    def test_alias_tag_baseline_no_warn(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._repo_with_baselines(
+                Path(d),
+                "build:\n  variants:\n    - tag: 15\n      aliases: [\"lts\"]\n",
+                ["baseline-lts.png"],
+            )
+            _, warnings = lint_repo(repo)
+        baseline_warns = [w for w in warnings if "baseline-lts.png" in w]
+        self.assertEqual(baseline_warns, [])
+
+    def test_baselines_subdir_checked(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = self._repo_with_baselines(
+                Path(d),
+                "build:\n  variants:\n    - tag: 15\n",
+                ["baseline-14.png"],
+                in_subdir=True,
+            )
+            _, warnings = lint_repo(repo)
+        self.assertTrue(
+            any("baselines/baseline-14.png" in w for w in warnings),
+            f"Expected stale baseline warning for subdir, got: {warnings}",
+        )
+
+    def test_no_config_no_crash(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / "Containerfile").write_text("FROM scratch\n")
+            daemonless = repo / ".daemonless"
+            daemonless.mkdir()
+            (daemonless / "baseline-anything.png").write_bytes(b"")
+            # no config.yaml and no compose.yaml -> lint_repo returns early
+            errors, warnings = lint_repo(repo)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

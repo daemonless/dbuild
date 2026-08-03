@@ -119,14 +119,23 @@ def _pkg_run_deps(pkgname: str) -> list[str]:
         return []
 
 
-def _make_query(port_path: Path, variables: list[str]) -> dict[str, str]:
-    """Query port variables via make -V, one call per variable for reliability."""
+def _make_query(
+    port_path: Path, variables: list[str], flavor: str | None = None,
+) -> dict[str, str]:
+    """Query port variables via make -V, one call per variable for reliability.
+
+    *flavor* is passed as the FLAVOR env var (FreeBSD's own selection
+    mechanism), not a -V variable — ports don't accept it as a make arg.
+    """
+    env = os.environ.copy()
+    if flavor:
+        env["FLAVOR"] = flavor
     result: dict[str, str] = {}
     for var in variables:
         try:
             out = subprocess.check_output(
                 ["make", "-C", str(port_path), "-V", var],
-                text=True, stderr=subprocess.DEVNULL,
+                text=True, stderr=subprocess.DEVNULL, env=env,
             )
             result[var] = out.strip()
         except subprocess.CalledProcessError:
@@ -149,7 +158,49 @@ def _first_paragraph(text: str) -> str:
     return " ".join(paragraph)
 
 
-def _fetch_port_metadata(port_path: str) -> dict[str, str] | None:
+def _strip_pkg_version(raw: str) -> str:
+    """Strip the trailing version (foo-1.2.3 -> foo) from a PKGNAME."""
+    return re.sub(r"-[\d].*$", "", raw)
+
+
+def _resolve_flavors(
+    full_path: Path, port_path: str, requested: list[str],
+) -> dict[str, str] | None:
+    """Validate *requested* flavors against the port and return their pkgnames.
+
+    Returns {} if *requested* is empty. Returns None (after logging) if the
+    port has no FLAVORS, or a requested flavor isn't one of them — `make`
+    silently ignores an unrecognized FLAVOR value instead of erroring, so
+    this has to be checked explicitly before it's used for anything.
+    """
+    if not requested:
+        return {}
+
+    available = _make_query(full_path, ["FLAVORS"]).get("FLAVORS", "").split()
+    if not available:
+        log.error(f"{port_path} has no FLAVORS — --flavors doesn't apply here")
+        return None
+
+    unknown = [f for f in requested if f not in available]
+    if unknown:
+        log.error(
+            f"unknown flavor(s) {', '.join(unknown)} for {port_path} — "
+            f"available: {', '.join(available)}"
+        )
+        return None
+
+    log.info(f"querying pkgnames for flavors: {', '.join(requested)}...")
+    flavor_pkgnames: dict[str, str] = {}
+    for flavor in requested:
+        raw = _make_query(full_path, ["PKGNAME"], flavor=flavor).get("PKGNAME", "")
+        flavor_pkgnames[flavor] = _strip_pkg_version(raw)
+        log.success(f"flavor {flavor}: pkg = {flavor_pkgnames[flavor]}")
+    return flavor_pkgnames
+
+
+def _fetch_port_metadata(
+    port_path: str, flavors: list[str] | None = None,
+) -> dict[str, object] | None:
     """Fetch metadata from a FreeBSD port."""
     if "/" not in port_path or port_path.count("/") != 1:
         log.error(
