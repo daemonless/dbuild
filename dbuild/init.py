@@ -260,6 +260,10 @@ def _fetch_port_metadata(
         log.warn(f"no runtime deps found for '{pkgname}' via pkg rquery"
                  " — is the pkg index up to date?")
 
+    flavor_pkgnames = _resolve_flavors(full_path, port_path, flavors or [])
+    if flavor_pkgnames is None:
+        return None
+
     meta = {
         "name":           portname,
         "pkgname":        pkgname,
@@ -272,6 +276,7 @@ def _fetch_port_metadata(
         "rc_name":        rc_name,
         "freshports_url": f"https://www.freshports.org/{port_path}/",
         "category":       category,
+        "flavor_pkgnames": flavor_pkgnames,
     }
 
     desc_preview = meta["description"][:80] + ("..." if len(meta["description"]) > 80 else "")
@@ -291,6 +296,36 @@ def _fetch_port_metadata(
         log.warn("LICENSE not set in port — update org.opencontainers.image.licenses manually")
 
     return meta
+
+
+def _build_variants_block(variants: list[str], flavor_pkgnames: dict[str, str]) -> str:
+    """Render the `build.variants:` YAML list for config.yaml.
+
+    Source-type tags (not starting with "pkg") get a plain Containerfile
+    entry. Pkg-type tags get Containerfile.pkg; if *flavor_pkgnames* is
+    non-empty, each pkg-type tag is replaced by one entry per flavor (e.g.
+    pkg -> pkg-lua, pkg-wolfssl), each carrying that flavor's own resolved
+    pkg_name -- flavors are a FreeBSD-package concept, so source variants
+    are never crossed with them.
+    """
+    lines: list[str] = []
+    for tag in variants:
+        is_pkg = tag.startswith("pkg")
+        is_latest_pkgs = tag.endswith("-latest")
+        targets = (
+            [(f"{tag}-{flavor}", pkg) for flavor, pkg in flavor_pkgnames.items()]
+            if is_pkg and flavor_pkgnames
+            else [(tag, None)]
+        )
+        for out_tag, pkg_name in targets:
+            lines.append(f"    - tag: {out_tag}")
+            lines.append(f"      containerfile: Containerfile{'.pkg' if is_pkg else ''}")
+            if pkg_name:
+                lines.append(f"      pkg_name: {pkg_name}")
+            if is_pkg and is_latest_pkgs:
+                lines.append("      args:")
+                lines.append('        BASE_VERSION: "15.1-latest"')
+    return "\n".join(lines)
 
 
 def _render_template(template_name: str, context: dict[str, str]) -> str | None:
@@ -370,9 +405,20 @@ def run(args: argparse.Namespace) -> int:
     """Scaffold a new dbuild project in the current directory."""
     base = Path.cwd()
 
-    port_meta: dict[str, str] = {}
+    flavors = [f.strip() for f in (getattr(args, "flavors", None) or "").split(",") if f.strip()]
+    if flavors and not getattr(args, "freebsd_port", None):
+        log.error("--flavors requires --freebsd-port (flavors are a FreeBSD ports concept)")
+        return 1
+
+    port_meta: dict[str, object] = {}
     if getattr(args, "freebsd_port", None):
-        port_meta = _fetch_port_metadata(args.freebsd_port) or {}
+        fetched = _fetch_port_metadata(args.freebsd_port, flavors=flavors)
+        if fetched is None:
+            if flavors:
+                log.error("aborting: could not resolve --flavors against the port")
+                return 1
+            fetched = {}
+        port_meta = fetched
 
     app_name = args.name or port_meta.get("name") or base.name
     title = args.title or app_name.capitalize()
@@ -409,6 +455,9 @@ def run(args: argparse.Namespace) -> int:
         "run_deps":       port_meta.get("run_deps") or app_name,
         "license":        port_meta.get("license") or "UNKNOWN",
         "rc_name":        port_meta.get("rc_name") or app_name,
+        "variants_block": _build_variants_block(
+            variants, port_meta.get("flavor_pkgnames") or {}
+        ),
     }
 
     has_pkg = any(v.startswith("pkg") for v in variants)
