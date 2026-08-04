@@ -77,6 +77,13 @@ def _prefix_from_executable() -> Path | None:
 # Valid x-daemonless categories — single source of truth across dbuild.
 VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base"]
 
+# Valid x-daemonless.type values. "app" (default): normal buildable image.
+# "base": FROM-only base image (version.py uses base-style version extraction).
+# "stack": compose-only bundle, no buildable variants (build/detect skip it).
+# "appliance": zero-config, pre-configured drop-in utility (e.g. pkg-cache) —
+# classification only for now, same build/version behavior as "app".
+VALID_TYPES: list[str] = ["app", "base", "stack", "appliance"]
+
 VALID_CATEGORIES: list[str] = [
     "Base",
     "Databases",

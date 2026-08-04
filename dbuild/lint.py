@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from dbuild.config import VALID_CATEGORIES
+from dbuild.config import VALID_CATEGORIES, VALID_TYPES
 
 try:
     import yaml
@@ -100,6 +100,15 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                 errors.append(
                     f"Invalid category '{category}'."
                     f" Valid: {', '.join(VALID_CATEGORIES)}"
+                )
+
+            if verbose:
+                print("  checking type")
+            image_type = meta.get("type", "")
+            if image_type and image_type not in VALID_TYPES:
+                errors.append(
+                    f"Invalid type '{image_type}'."
+                    f" Valid: {', '.join(VALID_TYPES)}"
                 )
 
             if verbose:
