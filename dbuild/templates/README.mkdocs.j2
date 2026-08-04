@@ -72,10 +72,7 @@ description: "{{ description }} Built natively for FreeBSD with s6 supervision, 
 
 {% block prerequisites %}
 
-!!! failure "Root Privileges Required"
-    **Podman on FreeBSD currently requires root.** All commands must be run as root (or via `doas`/`sudo`).
-
-Before deploying, ensure your host environment is ready. See the [Quick Start Guide](../guides/quick-start.md) for host setup instructions.
+Before deploying, ensure your host environment is ready. See the [Quick Start Guide](../guides/quick-start.md) for host setup instructions, including the security model for host vs. container privileges.
 {% endblock %}
 
 {% block deployment_tabs %}
