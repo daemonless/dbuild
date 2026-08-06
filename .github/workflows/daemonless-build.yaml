@@ -37,10 +37,15 @@ on:
         required: false
         type: boolean
         default: true
+      arch:
+        description: 'Restrict CI to a single architecture (e.g. amd64). Blank = use the org default (daemonless defaults to amd64-only; other orgs build every architecture listed in .daemonless/config.yaml).'
+        required: false
+        type: string
+        default: ''
 
 env:
   REGISTRY: ghcr.io
-  DBUILD_REF: v1.9.9
+  DBUILD_REF: v1.9.10
 
 jobs:
   # Detect which variants exist and build dynamic matrix
@@ -78,7 +83,17 @@ jobs:
           curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
-          python3 -m dbuild detect --format github ${{ inputs.variant && format('--variant {0}', inputs.variant) || '' }}
+          ARCH_FILTER="${{ inputs.arch }}"
+          # daemonless org defaults CI to amd64-only -- non-amd64 archs are
+          # QEMU-emulated on GHA runners and not something we want auto-
+          # building on every push. A caller can still opt back in by
+          # passing the `arch` input explicitly. Other orgs reusing this
+          # workflow get every architecture listed in .daemonless/config.yaml,
+          # unrestricted, by default.
+          if [ -z "$ARCH_FILTER" ] && [ "${{ github.repository_owner }}" = "daemonless" ]; then
+            ARCH_FILTER="amd64"
+          fi
+          python3 -m dbuild ${ARCH_FILTER:+--arch "$ARCH_FILTER"} detect --format github ${{ inputs.variant && format('--variant {0}', inputs.variant) || '' }}
 
   # Lint check on PRs — fails the check if dbuild lint detects any errors.
   lint:

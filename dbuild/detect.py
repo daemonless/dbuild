@@ -77,8 +77,12 @@ def _github_extras(
     if not matrix and cfg.test and cfg.test.compose:
         compose_only = "true"
 
-    # architectures as JSON array
-    arch_json = json.dumps(cfg.architectures, separators=(",", ":"))
+    # architectures as JSON array -- derived from the filtered matrix, not
+    # cfg.architectures directly. An --arch filter (e.g. the daemonless org
+    # default restricting CI to amd64) must be reflected here too, or
+    # create-manifests tries to reference arch tags that were never built.
+    matrix_archs = sorted({entry["arch"] for entry in matrix})
+    arch_json = json.dumps(matrix_archs, separators=(",", ":"))
 
     # manifest_tags: unique tag + aliases for multi-arch manifests
     manifest_tags: list[str] = []
