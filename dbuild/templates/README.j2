@@ -203,6 +203,44 @@ appjail oci run \
 {%- endif %}
 {%- endmacro -%}
 
+{#- Version-tags table, with an optional arch suffix appended to every tag
+    (e.g. suffix="-aarch64" -> `15.1-aarch64`). Bare (amd64) uses suffix="". -#}
+{%- macro version_tags_table(suffix='') -%}
+| Tag | Description | Best For |
+| :--- | :--- | :--- |
+{%- if variants | length > 1 %}
+{%- for v in variants %}
+{%- set all_tags = ([v.tag] + v.aliases) | sort %}
+{%- set tag_str = (all_tags | join(suffix ~ '` / `')) ~ suffix %}
+{%- set base_ver = v.args.get('BASE_VERSION', '') %}
+{%- set is_pkg = 'pkg' in v.containerfile %}
+{%- if v.tag_desc %}
+{%- set src_desc = v.tag_desc %}
+{%- set best_for = "Most users — recommended." if v.default else "Alternative build." %}
+{%- elif base_ver.endswith('-latest') %}
+{%- set src_desc = "**FreeBSD Latest**. Rolling package updates." %}
+{%- set best_for = "Staying current." %}
+{%- elif is_pkg %}
+{%- set src_desc = "**FreeBSD Quarterly**. Uses stable, tested packages." %}
+{%- set best_for = "Most users — recommended." if v.default else "Production stability." %}
+{%- elif upstream_binary %}
+{%- set src_desc = "**Upstream Binary**. Built from official release." %}
+{%- set best_for = "Most users — recommended." if v.default else "Alternative build." %}
+{%- else %}
+{%- set src_desc = "**FreeBSD Port**. Built from FreeBSD packages." %}
+{%- set best_for = "Most users — recommended." if v.default else "Production stability." %}
+{%- endif %}
+| `{{ tag_str }}` | {{ src_desc }} | {{ best_for }} |
+{%- endfor %}
+{%- else %}
+| `latest{{ suffix }}` | {% if upstream_binary %}**Upstream Binary**. Built from official release.{% else %}**FreeBSD Port**. Built from latest FreeBSD packages.{% endif %} | Most users — recommended. |
+{%- if tags and 'pkg' in tags %}
+| `pkg{{ suffix }}` | **FreeBSD Quarterly**. Uses stable, tested packages. | Production stability. |
+| `pkg-latest{{ suffix }}` | **FreeBSD Latest**. Rolling package updates. | Staying current. |
+{%- endif %}
+{%- endif %}
+{%- endmacro -%}
+
 {#- ==================================================================
     Template Output
     ================================================================== #}
@@ -291,40 +329,17 @@ Source: dbuild templates
 
 {%- if readme and readme.version_tags %}
 {{ readme.version_tags }}
+{%- elif render_mode == "mkdocs" and 'aarch64' in (architectures | default(['amd64'])) %}
+
+=== "amd64"
+
+{{ version_tags_table() | indent(4, first=True) }}
+
+=== "aarch64"
+
+{{ version_tags_table('-aarch64') | indent(4, first=True) }}
 {%- else %}
-| Tag | Description | Best For |
-| :--- | :--- | :--- |
-{%- if variants | length > 1 %}
-{%- for v in variants %}
-{%- set all_tags = ([v.tag] + v.aliases) | sort %}
-{%- set tag_str = all_tags | join('` / `') %}
-{%- set base_ver = v.args.get('BASE_VERSION', '') %}
-{%- set is_pkg = 'pkg' in v.containerfile %}
-{%- if v.tag_desc %}
-{%- set src_desc = v.tag_desc %}
-{%- set best_for = "Most users. Matches Linux Docker behavior." if v.default else "Alternative build." %}
-{%- elif base_ver.endswith('-latest') %}
-{%- set src_desc = "**FreeBSD Latest**. Rolling package updates." %}
-{%- set best_for = "Newest FreeBSD packages." %}
-{%- elif is_pkg %}
-{%- set src_desc = "**FreeBSD Quarterly**. Uses stable, tested packages." %}
-{%- set best_for = "Most users. Matches Linux Docker behavior." if v.default else "Production stability." %}
-{%- elif upstream_binary %}
-{%- set src_desc = "**Upstream Binary**. Built from official release." %}
-{%- set best_for = "Most users. Matches Linux Docker behavior." if v.default else "Alternative build." %}
-{%- else %}
-{%- set src_desc = "**FreeBSD Port**. Built from FreeBSD packages." %}
-{%- set best_for = "Most users. Matches Linux Docker behavior." if v.default else "Production stability." %}
-{%- endif %}
-| `{{ tag_str }}` | {{ src_desc }} | {{ best_for }} |
-{%- endfor %}
-{%- else %}
-| `latest` | {% if upstream_binary %}**Upstream Binary**. Built from official release.{% else %}**FreeBSD Port**. Built from latest FreeBSD packages.{% endif %} | Most users. Matches Linux Docker behavior. |
-{%- if tags and 'pkg' in tags %}
-| `pkg` | **FreeBSD Quarterly**. Uses stable, tested packages. | Production stability. |
-| `pkg-latest` | **FreeBSD Latest**. Rolling package updates. | Newest FreeBSD features. |
-{%- endif %}
-{%- endif %}
+{{ version_tags_table() }}
 {%- endif %}
 {%- endblock %}
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dbuild import labels, log, podman, version
@@ -48,6 +50,44 @@ def _map_arch(arch: str) -> str:
             f"Unknown architecture: {arch}  (supported: {supported})"
         )
     return mapped
+
+
+# Matches a daemonless-parent FROM: group1 = "FROM ghcr.io/daemonless/<name>:",
+# group2 = tag token (literal or ${VAR}), group3 = trailing " AS <stage>" or "".
+_DAEMONLESS_FROM = re.compile(r"^(FROM\s+ghcr\.io/daemonless/\S+?:)(\S+)(.*)$")
+
+
+def _arch_pin_containerfile(containerfile: str, freebsd_arch: str) -> str:
+    """Pin daemonless-parent ``FROM`` refs to the arch-specific tag for non-amd64.
+
+    Cross-CI multi-arch (amd64 on GitHub, aarch64 on a native host) can't rely on
+    a shared multi-arch parent tag: in the window between the two CIs publishing,
+    that tag is single-arch. So each arch build pulls its parent by an explicit
+    arch-suffixed tag instead (``base-core:15.1-pkg`` -> ``...-pkg-aarch64``). amd64
+    is the bare tag, so this is a no-op there. Returns the path to build with (the
+    original when nothing changed, else a sibling temp file).
+    """
+    suffix = arch_tag_suffix(freebsd_arch)
+    if not suffix or not os.path.exists(containerfile):
+        return containerfile
+    lines: list[str] = []
+    changed = False
+    with open(containerfile) as fh:
+        for line in fh:
+            m = _DAEMONLESS_FROM.match(line)
+            if m and not m.group(2).endswith(suffix):
+                line = f"{m.group(1)}{m.group(2)}{suffix}{m.group(3)}\n"
+                changed = True
+            lines.append(line)
+    if not changed:
+        return containerfile
+    fd, pinned = tempfile.mkstemp(
+        prefix="Containerfile.arch-",
+        dir=os.path.dirname(os.path.abspath(containerfile)),
+    )
+    with os.fdopen(fd, "w") as fh:
+        fh.writelines(lines)
+    return pinned
 
 
 # ── Build a single variant ───────────────────────────────────────────
@@ -106,9 +146,12 @@ def _build_variant(
             extra_args.extend(["--volume", cache_dir])
 
     # ---- run the build ----
+    # For non-amd64, pin daemonless-parent FROM refs to the arch-specific tag so
+    # each arch build pulls its own parent (no shared multi-arch tag needed).
+    containerfile = _arch_pin_containerfile(variant.containerfile, freebsd_arch)
     log.timer_start(f"build:{variant.tag}")
     podman.build(
-        containerfile=variant.containerfile,
+        containerfile=containerfile,
         tag=full_build_ref,
         build_args=build_args,
         secrets=secrets,
