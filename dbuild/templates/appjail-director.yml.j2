@@ -16,9 +16,9 @@ services:
       - container: 'boot args:--pull'
 {%- for p in ports %}
 {%- if loop.first %}
-      - expose: '{{ override_port if override_port else port_var }}:{{ p.target }} proto:{{ p.protocol }}' \
+      - expose: '{{ override_port if override_port else port_var }}:{{ p.target }} proto:{{ p.protocol }}'
 {%- else %}
-      - expose: '{{ p.port }}:{{ p.target }} proto:{{ p.protocol }}' \
+      - expose: '{{ p.port }}:{{ p.target }} proto:{{ p.protocol }}'
 {%- endif %}
 {%- endfor %}
 {%- if appjail and appjail.makejail and appjail.makejail.options %}
