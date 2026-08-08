@@ -77,34 +77,60 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 {% block deployment_tabs %}
 {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
-{%- if image_class == "service" %}
-=== ":material-docker: Podman Compose"
+{%- if appjail_enabled %}
+{#- Two backends: nest formats under a per-runtime outer tab. #}
+=== ":material-docker: Podman"
+
+{% if image_class == "service" %}
+    === ":material-file-document-outline: Compose"
+
+        ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
+        {{ compose_snippet(port_var) | indent(8) }}
+        ```
+
+{% endif %}
+    === ":material-console: CLI"
+
+        ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
+        {{ cli_snippet(port_var) | indent(8) }}
+        ```
+{% if image_class == "service" %}
+
+    === ":simple-ansible: Ansible"
+
+        ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
+        {{ ansible_snippet(port_var) | indent(8) }}
+        ```
+{% endif %}
+
+=== ":appjail-appjail: AppJail"
+
+{% if image_class == "service" %}
+    === ":material-file-document-outline: Director"
+
+        {{ appjail_director_snippet(port_var) | indent(8) }}
+
+{% endif %}
+    === ":material-console: CLI"
+
+        ```bash { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="run.sh" }
+        {{ appjail_snippet(port_var) | indent(8) }}
+        ```
+{%- else %}
+{#- Podman-only: keep formats flat, no redundant outer runtime tab. #}
+{% if image_class == "service" %}
+=== ":material-docker: Compose"
 
     ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
     {{ compose_snippet(port_var) | indent(4) }}
     ```
 
-{% if appjail_enabled %}
-=== ":appjail-appjail: AppJail Director"
-
-    {{ appjail_director_snippet(port_var) | indent(4) }}
-
 {% endif %}
-{%- endif %}
 === ":material-console: Podman CLI"
 
     ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
     {{ cli_snippet(port_var) | indent(4) }}
     ```
-
-{% if appjail_enabled %}
-=== ":appjail-appjail: AppJail"
-
-    ```bash { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="run.sh" }
-    {{ appjail_snippet(port_var) | indent(4) }}
-    ```
-
-{% endif %}
 {%- if image_class == "service" %}
 
 === ":simple-ansible: Ansible"
@@ -112,6 +138,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
     {{ ansible_snippet(port_var) | indent(4) }}
     ```
+{%- endif %}
 {%- endif %}
 {% endblock %}
 
