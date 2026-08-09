@@ -468,11 +468,20 @@ def _make_parser() -> argparse.ArgumentParser:
 
 
 def _apply_overrides(cfg: Config, args: argparse.Namespace) -> Config:
-    """Apply CLI overrides (--registry, --arch) to the loaded config."""
+    """Apply CLI overrides (--registry) to the loaded config.
+
+    --arch is deliberately NOT applied here. It used to collapse
+    cfg.architectures down to a single entry, but every consumer that
+    needs "which arch is this invocation targeting" already reads
+    args.arch directly (via default_arch(cfg.architectures) as the
+    fallback) -- and consumers that need the full declared list
+    (arch_tag_suffix's multi-arch check, manifest's arch loop, docs)
+    would silently see a single-arch image and mis-tag/mis-warn.
+    detect.py does its own independent --arch filtering for the CI
+    matrix, so it doesn't need this either.
+    """
     if args.registry is not None:
         cfg.registry = args.registry
-    if args.arch is not None:
-        cfg.architectures = [args.arch]
     return cfg
 
 

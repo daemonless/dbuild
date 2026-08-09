@@ -195,12 +195,17 @@ class TestApplyOverrides(unittest.TestCase):
         cfg = _apply_overrides(cfg, args)
         self.assertEqual(cfg.registry, "myregistry.io/org")
 
-    def test_arch_override(self):
+    def test_arch_does_not_collapse_declared_architectures(self):
+        # --arch picks which single arch THIS invocation targets (read via
+        # args.arch by build/push/sbom), but must not collapse the
+        # declared list -- arch_tag_suffix's multi-arch check and
+        # manifest's arch loop need to see the full list regardless of
+        # which single arch any one CI job is building.
         cfg = Config(image="test", registry="ghcr.io/daemonless",
                      architectures=["amd64", "aarch64"])
         args = argparse.Namespace(registry=None, arch="riscv64")
         cfg = _apply_overrides(cfg, args)
-        self.assertEqual(cfg.architectures, ["riscv64"])
+        self.assertEqual(cfg.architectures, ["amd64", "aarch64"])
 
     def test_no_overrides(self):
         cfg = Config(image="test", registry="ghcr.io/daemonless")
