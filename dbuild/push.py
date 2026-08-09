@@ -21,7 +21,7 @@ import os
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
+from dbuild.config import Config, Variant, arch_tag_suffix, default_arch, variant_filter_matches
 
 
 def _version_tag(version: str, variant_tag: str) -> str:
@@ -36,14 +36,17 @@ def _collect_tags(
     variant: Variant,
     arch: str,
     version: str | None = None,
+    architectures: list[str] | None = None,
 ) -> list[str]:
     """Return all tags that should be pushed for *variant* and *arch*.
 
     The primary tag is always first, followed by any aliases,
     then the versioned tag (e.g. ``32.0.5-pkg``).
-    Non-amd64 architectures get an arch suffix (e.g. ``15-aarch64``).
+    Non-amd64 architectures get an arch suffix (e.g. ``15-aarch64``);
+    for genuinely multi-arch images amd64 gets one too (see
+    ``config.arch_tag_suffix``).
     """
-    suffix = arch_tag_suffix(arch)
+    suffix = arch_tag_suffix(arch, architectures)
     tags = [f"{variant.tag}{suffix}"]
     for alias in variant.aliases:
         suffixed = f"{alias}{suffix}"
@@ -72,7 +75,7 @@ def _local_tag_variant(cfg: Config, variant: Variant, arch: str) -> list[str]:
     labels = podman.inspect_labels(build_ref)
     version = labels.get("org.opencontainers.image.version")
 
-    tags = _collect_tags(variant, arch, version)
+    tags = _collect_tags(variant, arch, version, cfg.architectures)
 
     for tag in tags:
         final_ref = f"{cfg.full_image}:{tag}"
@@ -162,7 +165,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
 
     # ---- push each variant ----
     variant_filter: str | None = getattr(args, "variant", None)
-    arch: str = getattr(args, "arch", None) or cfg.architectures[0]
+    arch: str = getattr(args, "arch", None) or default_arch(cfg.architectures)
     pushed: list[str] = []
 
     for variant in cfg.variants:

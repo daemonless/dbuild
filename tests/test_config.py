@@ -35,6 +35,20 @@ class TestArchTagSuffix(unittest.TestCase):
     def test_riscv64(self):
         self.assertEqual(arch_tag_suffix("riscv64"), "-riscv64")
 
+    def test_single_arch_image_amd64_stays_bare(self):
+        # architectures explicitly given but only one entry -- same as
+        # not passing it at all.
+        self.assertEqual(arch_tag_suffix("amd64", ["amd64"]), "")
+
+    def test_multi_arch_image_amd64_gets_suffixed(self):
+        # len(architectures) > 1 -- amd64 is no longer special-cased, so
+        # the bare tag is never ambiguous between "the amd64 image" and
+        # "the manifest list".
+        self.assertEqual(arch_tag_suffix("amd64", ["amd64", "aarch64"]), "-amd64")
+
+    def test_multi_arch_image_aarch64_unaffected(self):
+        self.assertEqual(arch_tag_suffix("aarch64", ["amd64", "aarch64"]), "-aarch64")
+
 
 class TestAutoDetectVariants(unittest.TestCase):
     """Tests for _auto_detect_variants()."""

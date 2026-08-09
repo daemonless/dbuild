@@ -17,13 +17,14 @@ This module does NOT push, test, or know about CI systems.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dbuild import labels, log, podman, version
-from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
+from dbuild.config import Config, Variant, arch_tag_suffix, default_arch, variant_filter_matches
 
 # ── Architecture mapping ─────────────────────────────────────────────
 
@@ -57,17 +58,22 @@ def _map_arch(arch: str) -> str:
 _DAEMONLESS_FROM = re.compile(r"^(FROM\s+ghcr\.io/daemonless/\S+?:)(\S+)(.*)$")
 
 
-def _arch_pin_containerfile(containerfile: str, freebsd_arch: str) -> str:
-    """Pin daemonless-parent ``FROM`` refs to the arch-specific tag for non-amd64.
+def _arch_pin_containerfile(
+    containerfile: str, freebsd_arch: str, architectures: list[str] | None = None
+) -> str:
+    """Pin daemonless-parent ``FROM`` refs to the arch-specific tag.
 
     Cross-CI multi-arch (amd64 on GitHub, aarch64 on a native host) can't rely on
     a shared multi-arch parent tag: in the window between the two CIs publishing,
-    that tag is single-arch. So each arch build pulls its parent by an explicit
-    arch-suffixed tag instead (``base-core:15.1-pkg`` -> ``...-pkg-aarch64``). amd64
-    is the bare tag, so this is a no-op there. Returns the path to build with (the
-    original when nothing changed, else a sibling temp file).
+    that tag is single-arch (or, once the parent is itself multi-arch, is a
+    manifest list rather than a build-time-pullable single image). So each arch
+    build pulls its parent by an explicit arch-suffixed tag instead
+    (``base-core:15.1-pkg`` -> ``...-pkg-aarch64``). For single-arch images amd64
+    is the bare tag, so this is a no-op there; for genuinely multi-arch images
+    amd64 gets pinned too (see ``config.arch_tag_suffix``). Returns the path to
+    build with (the original when nothing changed, else a sibling temp file).
     """
-    suffix = arch_tag_suffix(freebsd_arch)
+    suffix = arch_tag_suffix(freebsd_arch, architectures)
     if not suffix or not os.path.exists(containerfile):
         return containerfile
     lines: list[str] = []
@@ -81,10 +87,9 @@ def _arch_pin_containerfile(containerfile: str, freebsd_arch: str) -> str:
             lines.append(line)
     if not changed:
         return containerfile
-    fd, pinned = tempfile.mkstemp(
-        prefix="Containerfile.arch-",
-        dir=os.path.dirname(os.path.abspath(containerfile)),
-    )
+    # System temp dir, not the repo -- COPY is context-relative so the
+    # Containerfile's location doesn't matter, and this keeps the tree clean.
+    fd, pinned = tempfile.mkstemp(prefix="dbuild-Containerfile.arch-")
     with os.fdopen(fd, "w") as fh:
         fh.writelines(lines)
     return pinned
@@ -105,7 +110,7 @@ def _build_variant(
     extra_args = []
     freebsd_arch = _map_arch(arch)
     build_tag = (
-        f"{variant.tag}{arch_tag_suffix(freebsd_arch)}"
+        f"{variant.tag}{arch_tag_suffix(freebsd_arch, cfg.architectures)}"
         if promote_local
         else f"build-{variant.tag}"
     )
@@ -146,19 +151,26 @@ def _build_variant(
             extra_args.extend(["--volume", cache_dir])
 
     # ---- run the build ----
-    # For non-amd64, pin daemonless-parent FROM refs to the arch-specific tag so
-    # each arch build pulls its own parent (no shared multi-arch tag needed).
-    containerfile = _arch_pin_containerfile(variant.containerfile, freebsd_arch)
-    log.timer_start(f"build:{variant.tag}")
-    podman.build(
-        containerfile=containerfile,
-        tag=full_build_ref,
-        build_args=build_args,
-        secrets=secrets,
-        prefix=prefix,
-        no_cache=no_cache,
-        extra_args=extra_args,
+    # Pin daemonless-parent FROM refs to the arch-specific tag so each arch
+    # build pulls its own parent (no shared multi-arch tag needed).
+    containerfile = _arch_pin_containerfile(
+        variant.containerfile, freebsd_arch, cfg.architectures
     )
+    log.timer_start(f"build:{variant.tag}")
+    try:
+        podman.build(
+            containerfile=containerfile,
+            tag=full_build_ref,
+            build_args=build_args,
+            secrets=secrets,
+            prefix=prefix,
+            no_cache=no_cache,
+            extra_args=extra_args,
+        )
+    finally:
+        if containerfile != variant.containerfile:
+            with contextlib.suppress(OSError):
+                os.unlink(containerfile)
     log.timer_stop(f"build:{variant.tag}")
 
     # ---- extract version ----
@@ -214,7 +226,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         return
 
     variant_filter: str | None = getattr(args, "variant", None)
-    arch: str = getattr(args, "arch", None) or cfg.architectures[0]
+    arch: str = getattr(args, "arch", None) or default_arch(cfg.architectures)
     parallel: int | None = getattr(args, "parallel", None)
     no_cache: bool = getattr(args, "no_cache", False)
     promote_local: bool = getattr(args, "promote_local", False)

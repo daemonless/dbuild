@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 
 from dbuild import log
-from dbuild.config import Config, variant_filter_matches
+from dbuild.config import Config, default_arch, variant_filter_matches
 from dbuild.push import _local_tag_variant
 
 
@@ -32,7 +32,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         * ``arch``    -- target architecture override (optional).
     """
     variant_filter: str | None = getattr(args, "variant", None)
-    arch: str = getattr(args, "arch", None) or cfg.architectures[0]
+    arch: str = getattr(args, "arch", None) or default_arch(cfg.architectures)
 
     variants = [
         v for v in cfg.variants

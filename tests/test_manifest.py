@@ -65,3 +65,38 @@ class TestManifestAnnotateIndex(unittest.TestCase):
         )
         # Must not raise
         manifest._manifest_annotate_index("img:latest", {"k": "v"})
+
+
+class TestImageAvailable(unittest.TestCase):
+    """Tests for _image_available().
+
+    Must be remote-only: a local-first check let a persistent host-mode
+    runner's stale local images win over the registry, clobbering a
+    manifest's amd64 slot with a stale arm64 image (2026-08-07 incident).
+    """
+
+    @patch("dbuild.manifest.podman.image_exists")
+    @patch("dbuild.manifest.subprocess.run")
+    @patch("dbuild.manifest.podman._priv_prefix", return_value=[])
+    def test_never_consults_local_store(self, _priv, mock_run, mock_local):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        manifest._image_available("ghcr.io/daemonless/base:15.1")
+        mock_local.assert_not_called()
+
+    @patch("dbuild.manifest.subprocess.run")
+    @patch("dbuild.manifest.podman._priv_prefix", return_value=[])
+    def test_true_when_remote_exists(self, _priv, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        self.assertTrue(manifest._image_available("ghcr.io/daemonless/base:15.1"))
+
+    @patch("dbuild.manifest.subprocess.run")
+    @patch("dbuild.manifest.podman._priv_prefix", return_value=[])
+    def test_false_when_remote_missing(self, _priv, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="manifest unknown"
+        )
+        self.assertFalse(manifest._image_available("ghcr.io/daemonless/base:nope"))

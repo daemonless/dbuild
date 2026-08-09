@@ -67,7 +67,7 @@ def _github_extras(
         enriched.append({
             **entry,
             "type": cfg.type,
-            "arch_suffix": arch_tag_suffix(entry["arch"]),
+            "arch_suffix": arch_tag_suffix(entry["arch"], cfg.architectures),
             "vm_arch": vm["vm_arch"],
             "vm_sync": vm["vm_sync"],
         })

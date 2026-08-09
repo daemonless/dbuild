@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from dbuild import VERSION, log, podman
-from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
+from dbuild.config import Config, Variant, arch_tag_suffix, default_arch, variant_filter_matches
 
 # Package type categories extracted from Trivy output.
 _TRIVY_PKG_TYPES: dict[str, list[str]] = {
@@ -212,7 +212,7 @@ def _generate_sbom(
 
     # Include arch suffix in tag for non-amd64 so the merge step
     # produces separate entries (e.g. "15" and "15-aarch64").
-    sbom_tag = f"{variant.tag}{arch_tag_suffix(arch)}"
+    sbom_tag = f"{variant.tag}{arch_tag_suffix(arch, cfg.architectures)}"
 
     sbom: dict[str, Any] = {
         "image": cfg.image,
@@ -508,7 +508,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         return
 
     variant_filter: str | None = getattr(args, "variant", None)
-    arch: str = getattr(args, "arch", None) or cfg.architectures[0]
+    arch: str = getattr(args, "arch", None) or default_arch(cfg.architectures)
     output_dir = Path(getattr(args, "output_dir", None) or "sbom-results")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -527,9 +527,10 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         sbom = _generate_sbom(cfg, variant, arch)
         # Include the arch suffix (matching the internal `tag`) so per-arch
         # builds -- which run in separate VM jobs/hosts -- don't collide on a
-        # shared filename. amd64 is the default and stays bare for back-compat
-        # (e.g. base-core-15.1-pkg-sbom.json); aarch64 -> ...-pkg-aarch64-...
-        stem = f"{cfg.image}-{variant.tag}{arch_tag_suffix(arch)}"
+        # shared filename. amd64 stays bare for single-arch images (back-compat,
+        # e.g. base-core-15.1-pkg-sbom.json); for multi-arch images amd64 gets
+        # suffixed too (see config.arch_tag_suffix), aarch64 -> ...-pkg-aarch64-...
+        stem = f"{cfg.image}-{variant.tag}{arch_tag_suffix(arch, cfg.architectures)}"
 
         # The daemonless-native schema (Mode A) and standards formats
         # (Mode B) all derive from the same scan -- serialization is free.

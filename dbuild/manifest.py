@@ -24,15 +24,18 @@ from dbuild.config import Config, arch_tag_suffix, variant_filter_matches
 # Uses the shared `config.arch_tag_suffix` so the tags created by `push`
 # are exactly the ones looked up here (amd64 bare, others ``-<arch>``).
 
-def _arch_tag(base_tag: str, arch: str) -> str:
+def _arch_tag(base_tag: str, arch: str, architectures: list[str] | None = None) -> str:
     """Return the architecture-specific tag for *base_tag*.
 
-    Examples:
+    Examples (single-arch image, or *architectures* not given):
         _arch_tag("latest", "amd64")    -> "latest"
         _arch_tag("latest", "aarch64")  -> "latest-aarch64"
         _arch_tag("pkg", "riscv64")     -> "pkg-riscv64"
+
+    Multi-arch image (``len(architectures) > 1``): amd64 is suffixed too,
+    e.g. ``_arch_tag("latest", "amd64", ["amd64", "aarch64"]) -> "latest-amd64"``.
     """
-    return f"{base_tag}{arch_tag_suffix(arch)}"
+    return f"{base_tag}{arch_tag_suffix(arch, architectures)}"
 
 
 # ── Podman manifest helpers ──────────────────────────────────────────
@@ -109,12 +112,13 @@ def _manifest_push(manifest: str) -> None:
 
 
 def _image_available(image_ref: str) -> bool:
-    """Check whether *image_ref* is available locally or in a remote registry."""
-    # Try local first.
-    if podman.image_exists(image_ref):
-        return True
+    """Check whether *image_ref* exists in the remote registry.
 
-    # Try remote via skopeo.
+    Remote-only, deliberately: a local-first check let a persistent
+    host-mode runner's stale local images win over the real registry
+    content, clobbering the amd64 slot of a manifest with a stale arm64
+    image (2026-08-07 incident). Never consult the local podman store here.
+    """
     cmd = [*podman._priv_prefix(), "skopeo", "inspect", f"docker://{image_ref}"]
     remote = subprocess.run(cmd, capture_output=True, text=True, check=False)
     return remote.returncode == 0
@@ -136,7 +140,7 @@ def _create_manifest_for_tag(
     # Collect architecture-specific image references.
     arch_refs: list[str] = []
     for arch in cfg.architectures:
-        arch_specific_tag = _arch_tag(tag, arch)
+        arch_specific_tag = _arch_tag(tag, arch, cfg.architectures)
         image_ref = f"{cfg.full_image}:{arch_specific_tag}"
         if _image_available(image_ref):
             log.info(f"Found: {image_ref}")

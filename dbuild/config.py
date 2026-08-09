@@ -8,6 +8,7 @@ know about CI, or touch the network.
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -106,14 +107,48 @@ VALID_CATEGORIES: list[str] = [
 # (detect) so the tags `push` creates are exactly the ones `manifest`
 # looks for.
 
-def arch_tag_suffix(arch: str) -> str:
+def arch_tag_suffix(arch: str, architectures: list[str] | None = None) -> str:
     """Return the image-tag suffix for *arch*.
 
-    amd64 is the default architecture and gets no suffix (bare tag);
-    every other architecture is suffixed with ``-<arch>`` (e.g.
-    ``-aarch64``, ``-riscv64``).
+    Single-arch images (or callers that don't pass *architectures*) keep
+    the original convention: amd64 is bare, every other architecture is
+    suffixed with ``-<arch>``.
+
+    Genuinely multi-arch images (``len(architectures) > 1``) suffix
+    *every* arch, amd64 included, so the bare tag is never ambiguous
+    between "the amd64 image" and "the manifest list" -- that ambiguity
+    let a stale local amd64 image get clobbered by a manifest assembly
+    on a persistent runner (2026-08-07 incident).
     """
+    if architectures is not None and len(architectures) > 1:
+        return f"-{arch}"
     return "" if arch == "amd64" else f"-{arch}"
+
+
+_HOST_ARCH_MAP = {
+    "amd64": "amd64",    # FreeBSD
+    "x86_64": "amd64",   # Linux
+    "arm64": "aarch64",  # FreeBSD
+    "aarch64": "aarch64",  # Linux
+}
+
+
+def host_arch() -> str:
+    """FreeBSD arch label of the machine dbuild is running on (amd64/aarch64)."""
+    return _HOST_ARCH_MAP.get(platform.machine(), "amd64")
+
+
+def default_arch(architectures: list[str]) -> str:
+    """Target arch when ``--arch`` isn't given: the host's arch if this image
+    builds for it, else the first declared architecture. ``--arch`` overrides.
+
+    Native builds are the norm, so building on aarch64 should default to
+    aarch64 -- not amd64 just because it's listed first.
+    """
+    h = host_arch()
+    if h in architectures:
+        return h
+    return architectures[0] if architectures else "amd64"
 
 
 # ── Variant filtering ────────────────────────────────────────────────
