@@ -58,22 +58,24 @@ def _map_arch(arch: str) -> str:
 _DAEMONLESS_FROM = re.compile(r"^(FROM\s+ghcr\.io/daemonless/\S+?:)(\S+)(.*)$")
 
 
-def _arch_pin_containerfile(
-    containerfile: str, freebsd_arch: str, architectures: list[str] | None = None
-) -> str:
-    """Pin daemonless-parent ``FROM`` refs to the arch-specific tag.
+def _arch_pin_containerfile(containerfile: str, freebsd_arch: str) -> str:
+    """Pin daemonless-parent ``FROM`` refs to the arch-specific tag for non-amd64.
 
     Cross-CI multi-arch (amd64 on GitHub, aarch64 on a native host) can't rely on
     a shared multi-arch parent tag: in the window between the two CIs publishing,
-    that tag is single-arch (or, once the parent is itself multi-arch, is a
-    manifest list rather than a build-time-pullable single image). So each arch
-    build pulls its parent by an explicit arch-suffixed tag instead
-    (``base-core:15.1-pkg`` -> ``...-pkg-aarch64``). For single-arch images amd64
-    is the bare tag, so this is a no-op there; for genuinely multi-arch images
-    amd64 gets pinned too (see ``config.arch_tag_suffix``). Returns the path to
-    build with (the original when nothing changed, else a sibling temp file).
+    that tag is single-arch. So each arch build pulls its parent by an explicit
+    arch-suffixed tag instead (``base-core:15.1-pkg`` -> ``...-pkg-aarch64``).
+
+    amd64 is deliberately NOT pinned, even for images where amd64's own
+    published tag now gets suffixed too (see ``config.arch_tag_suffix``): amd64
+    is always built synchronously on GitHub, in the same pipeline as its
+    dependents, so it never has the cross-CI race this exists to avoid.
+    Pinning it would mean every multi-arch image's amd64 build hard-depends on
+    its parent already publishing a ``-amd64`` tag, which most parents (still
+    on the old convention) don't have. Returns the path to build with (the
+    original when nothing changed, else a sibling temp file).
     """
-    suffix = arch_tag_suffix(freebsd_arch, architectures)
+    suffix = arch_tag_suffix(freebsd_arch)
     if not suffix or not os.path.exists(containerfile):
         return containerfile
     lines: list[str] = []
@@ -153,9 +155,7 @@ def _build_variant(
     # ---- run the build ----
     # Pin daemonless-parent FROM refs to the arch-specific tag so each arch
     # build pulls its own parent (no shared multi-arch tag needed).
-    containerfile = _arch_pin_containerfile(
-        variant.containerfile, freebsd_arch, cfg.architectures
-    )
+    containerfile = _arch_pin_containerfile(variant.containerfile, freebsd_arch)
     log.timer_start(f"build:{variant.tag}")
     try:
         podman.build(
