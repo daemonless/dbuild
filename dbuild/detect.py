@@ -79,10 +79,13 @@ def _github_extras(
 
     # architectures as JSON array -- derived from the filtered matrix, not
     # cfg.architectures directly. An --arch filter (e.g. the daemonless org
-    # default restricting CI to amd64) must be reflected here too, or
-    # create-manifests tries to reference arch tags that were never built.
+    # default restricting CI to amd64) must be reflected here too.
     matrix_archs = sorted({entry["arch"] for entry in matrix})
     arch_json = json.dumps(matrix_archs, separators=(",", ":"))
+
+    # Full config list, unfiltered -- unlike `architectures` above, needed by
+    # create-manifests since aarch64 may come from a separate async CI (army).
+    declared_arch_json = json.dumps(sorted(cfg.architectures), separators=(",", ":"))
 
     # manifest_tags: unique tag + aliases for multi-arch manifests
     manifest_tags: list[str] = []
@@ -96,6 +99,7 @@ def _github_extras(
     extras = {
         "compose_only": compose_only,
         "architectures": arch_json,
+        "declared_architectures": declared_arch_json,
         "manifest_tags": " ".join(manifest_tags),
     }
     return enriched, extras

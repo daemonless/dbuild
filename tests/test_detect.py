@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import unittest
 
 from dbuild.config import AppTestConfig, Config, Variant
@@ -141,6 +142,26 @@ class TestGithubExtras(unittest.TestCase):
         _, extras = _github_extras(matrix, cfg)
         # "stable" appears in both variants but should be deduped
         self.assertEqual(extras["manifest_tags"], "latest stable pkg")
+
+    def test_declared_architectures_survives_arch_filter(self):
+        # The daemonless org restricts GHA to amd64-only via --arch, which
+        # makes the filtered `architectures` output amd64-only even for a
+        # genuinely multi-arch image (aarch64 comes from a separate CI,
+        # e.g. army). declared_architectures must still show the full
+        # config, or create-manifests's gate never fires for these repos.
+        cfg = _cfg(architectures=["amd64", "aarch64"])
+        matrix = _build_matrix(cfg, _args(arch="amd64"))
+        _, extras = _github_extras(matrix, cfg)
+        self.assertEqual(json.loads(extras["architectures"]), ["amd64"])
+        self.assertEqual(
+            json.loads(extras["declared_architectures"]), ["aarch64", "amd64"]
+        )
+
+    def test_declared_architectures_single_arch(self):
+        cfg = _cfg()
+        matrix = _build_matrix(cfg, _args())
+        _, extras = _github_extras(matrix, cfg)
+        self.assertEqual(json.loads(extras["declared_architectures"]), ["amd64"])
 
 
 class TestVmArchMap(unittest.TestCase):

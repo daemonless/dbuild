@@ -13,6 +13,7 @@ Uses registry backends from :mod:`dbuild.registry` for login.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 
 from dbuild import ci as ci_mod
@@ -126,33 +127,9 @@ def _image_available(image_ref: str) -> bool:
 
 # ── Create manifest for one tag ──────────────────────────────────────
 
-def _create_manifest_for_tag(
-    cfg: Config,
-    tag: str,
-) -> bool:
-    """Create and push a multi-arch manifest for a single tag.
-
-    Returns True if the manifest was successfully created and pushed.
-    """
-    manifest_name = f"{cfg.full_image}:{tag}"
-    log.step(f"Manifest :{tag}")
-
-    # Collect architecture-specific image references.
-    arch_refs: list[str] = []
-    for arch in cfg.architectures:
-        arch_specific_tag = _arch_tag(tag, arch, cfg.architectures)
-        image_ref = f"{cfg.full_image}:{arch_specific_tag}"
-        if _image_available(image_ref):
-            log.info(f"Found: {image_ref}")
-            arch_refs.append(image_ref)
-        else:
-            log.warn(f"Not found: {image_ref} (skipping)")
-
-    if not arch_refs:
-        log.error(f"No architecture-specific images found for :{tag}")
-        return False
-
-    # Remove any stale manifest, create a fresh one, add images.
+def _assemble_and_push(cfg: Config, image_prefix: str, tag: str, arch_refs: list[str]) -> bool:
+    """Create, annotate, and push one manifest list from already-resolved *arch_refs*."""
+    manifest_name = f"{image_prefix}:{tag}"
     _manifest_rm(manifest_name)
     _manifest_create(manifest_name)
 
@@ -165,9 +142,58 @@ def _create_manifest_for_tag(
             "org.opencontainers.image.description": cfg.metadata.description,
         })
 
-    # Push.
     _manifest_push(manifest_name)
     return True
+
+
+def _create_manifest_for_tag(
+    cfg: Config,
+    tag: str,
+    mirror_url: str | None = None,
+) -> bool:
+    """Create and push a multi-arch manifest for a single tag.
+
+    If *mirror_url* is set (a Docker Hub org URL, e.g. ``docker.io/daemonless``),
+    also assembles and pushes the same manifest there, referencing the
+    arch-specific images push.py already mirrored -- mirroring is skipped
+    (not failed) if an arch's mirrored image isn't there yet.
+
+    Returns True if the primary (GHCR) manifest was successfully created
+    and pushed. The mirror manifest's success/failure doesn't affect this.
+    """
+    log.step(f"Manifest :{tag}")
+
+    # Collect architecture-specific image references.
+    arch_refs: list[str] = []
+    mirror_refs: list[str] = []
+    for arch in cfg.architectures:
+        arch_specific_tag = _arch_tag(tag, arch, cfg.architectures)
+        image_ref = f"{cfg.full_image}:{arch_specific_tag}"
+        if _image_available(image_ref):
+            log.info(f"Found: {image_ref}")
+            arch_refs.append(image_ref)
+        else:
+            log.warn(f"Not found: {image_ref} (skipping)")
+
+        if mirror_url:
+            mirror_ref = f"{mirror_url}/{cfg.image}:{arch_specific_tag}"
+            if _image_available(mirror_ref):
+                mirror_refs.append(mirror_ref)
+
+    if not arch_refs:
+        log.error(f"No architecture-specific images found for :{tag}")
+        return False
+
+    ok = _assemble_and_push(cfg, cfg.full_image, tag, arch_refs)
+
+    if mirror_url:
+        if mirror_refs:
+            log.step(f"Mirroring manifest :{tag} to {mirror_url}")
+            _assemble_and_push(cfg, f"{mirror_url}/{cfg.image}", tag, mirror_refs)
+        else:
+            log.warn(f"No mirrored images found on {mirror_url} for :{tag} -- skipping mirror manifest")
+
+    return ok
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -205,6 +231,19 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             "No token/actor available -- assuming already logged in"
         )
 
+    # ---- optional Docker Hub mirror ----
+    # Same env vars and org-derivation as push.py, so a repo that's
+    # mirroring pushes there also gets a mirrored manifest for free.
+    mirror_url: str | None = None
+    dh_username = os.environ.get("DOCKERHUB_USERNAME")
+    dh_token = os.environ.get("DOCKERHUB_TOKEN")
+    if dh_username and dh_token:
+        parts = cfg.registry.split("/", 1)
+        dh_org = dh_username if len(parts) < 2 else parts[1]
+        mirror_reg = registry_mod.for_url(f"docker.io/{dh_org}", dh_token)
+        mirror_reg.login(dh_token, dh_username)
+        mirror_url = mirror_reg.url
+
     # ---- collect all tags that need manifests ----
     all_tags: list[str] = []
     variant_filter: str | None = getattr(args, "variant", None)
@@ -227,7 +266,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     failed: list[str] = []
 
     for tag in all_tags:
-        ok = _create_manifest_for_tag(cfg, tag)
+        ok = _create_manifest_for_tag(cfg, tag, mirror_url)
         if ok:
             created.append(tag)
         else:

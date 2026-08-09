@@ -60,6 +60,7 @@ jobs:
       matrix: ${{ steps.detect.outputs.matrix }}
       compose_only: ${{ steps.detect.outputs.compose_only }}
       architectures: ${{ steps.detect.outputs.architectures }}
+      declared_architectures: ${{ steps.detect.outputs.declared_architectures }}
       manifest_tags: ${{ steps.detect.outputs.manifest_tags }}
       build_tools_ref: ${{ steps.resolve-build-tools.outputs.ref }}
     steps:
@@ -361,44 +362,28 @@ jobs:
   # Create multi-arch manifests
   create-manifests:
     needs: [detect, build]
-    if: success() && github.event_name != 'pull_request' && contains(needs.detect.outputs.architectures, 'aarch64')
+    if: success() && github.event_name != 'pull_request' && contains(needs.detect.outputs.declared_architectures, 'aarch64')
     runs-on: ubuntu-latest
     steps:
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Install skopeo
+        run: sudo apt-get update -qq && sudo apt-get install -y skopeo
 
-      - name: Create and push manifests
+      - name: Fetch dbuild
+        run: |
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          mv /tmp/dbuild-* /tmp/dbuild
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: dbuild manifest
         env:
-          MANIFEST_TAGS: ${{ needs.detect.outputs.manifest_tags }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          IMAGE_NAME="${{ inputs.image_name }}"
-
-          # Login to Docker Hub if credentials available
-          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
-            echo "$DOCKERHUB_TOKEN" | podman login docker.io -u $DOCKERHUB_USERNAME --password-stdin
-          fi
-
-          for tag in $MANIFEST_TAGS; do
-            echo "=== Creating manifest for $tag ==="
-
-            # GHCR manifest
-            podman manifest create ghcr.io/daemonless/${IMAGE_NAME}:${tag} \
-              ghcr.io/daemonless/${IMAGE_NAME}:${tag} \
-              ghcr.io/daemonless/${IMAGE_NAME}:${tag}-aarch64 || continue
-            podman manifest push ghcr.io/daemonless/${IMAGE_NAME}:${tag} \
-              docker://ghcr.io/daemonless/${IMAGE_NAME}:${tag}
-
-            # Docker Hub manifest
-            if [ -n "$DOCKERHUB_USERNAME" ]; then
-              podman manifest create docker.io/daemonless/${IMAGE_NAME}:${tag} \
-                docker.io/daemonless/${IMAGE_NAME}:${tag} \
-                docker.io/daemonless/${IMAGE_NAME}:${tag}-aarch64 || continue
-              podman manifest push docker.io/daemonless/${IMAGE_NAME}:${tag} \
-                docker://docker.io/daemonless/${IMAGE_NAME}:${tag}
-            fi
-          done
+          export PYTHONPATH="/tmp/dbuild"
+          python3 -m dbuild -v manifest
 
   # Compose-only test (no build, just test pre-built images)
   test-compose:

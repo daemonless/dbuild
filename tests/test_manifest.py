@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from dbuild import manifest
+from dbuild.config import Config
 from dbuild.manifest import _arch_tag
 
 
@@ -100,3 +101,46 @@ class TestImageAvailable(unittest.TestCase):
             args=[], returncode=1, stdout="", stderr="manifest unknown"
         )
         self.assertFalse(manifest._image_available("ghcr.io/daemonless/base:nope"))
+
+
+class TestCreateManifestForTagMirror(unittest.TestCase):
+    """Tests for _create_manifest_for_tag()'s Docker Hub mirror handling."""
+
+    def _cfg(self):
+        return Config(
+            image="testapp", registry="ghcr.io/daemonless",
+            architectures=["amd64", "aarch64"],
+        )
+
+    @patch("dbuild.manifest._assemble_and_push", return_value=True)
+    @patch("dbuild.manifest._image_available", return_value=True)
+    def test_mirrors_when_images_present(self, _avail, mock_assemble):
+        ok = manifest._create_manifest_for_tag(
+            self._cfg(), "latest", mirror_url="docker.io/daemonless"
+        )
+        self.assertTrue(ok)
+        # Primary (GHCR) + mirror (Docker Hub) manifests both assembled.
+        prefixes = [call.args[1] for call in mock_assemble.call_args_list]
+        self.assertIn("ghcr.io/daemonless/testapp", prefixes)
+        self.assertIn("docker.io/daemonless/testapp", prefixes)
+
+    @patch("dbuild.manifest._assemble_and_push", return_value=True)
+    def test_skips_mirror_when_no_mirrored_images(self, mock_assemble):
+        # GHCR has the arch images, Docker Hub doesn't -- mirror is
+        # skipped, not failed; the primary manifest still succeeds.
+        def fake_available(ref: str) -> bool:
+            return ref.startswith("ghcr.io/")
+
+        with patch("dbuild.manifest._image_available", side_effect=fake_available):
+            ok = manifest._create_manifest_for_tag(
+                self._cfg(), "latest", mirror_url="docker.io/daemonless"
+            )
+        self.assertTrue(ok)
+        prefixes = [call.args[1] for call in mock_assemble.call_args_list]
+        self.assertEqual(prefixes, ["ghcr.io/daemonless/testapp"])
+
+    @patch("dbuild.manifest._assemble_and_push", return_value=True)
+    @patch("dbuild.manifest._image_available", return_value=True)
+    def test_no_mirror_attempt_without_mirror_url(self, _avail, mock_assemble):
+        manifest._create_manifest_for_tag(self._cfg(), "latest", mirror_url=None)
+        self.assertEqual(mock_assemble.call_count, 1)
