@@ -197,9 +197,10 @@ jobs:
             mdconfig -a -t vnode -f /swapfile -u 0
             swapon /dev/md0
 
-            # Install build tools from pinned bundle (arch-specific via arch_suffix).
+            # build-tools assets are amd64-bare/-aarch64/-riscv64 -- fixed
+            # naming, independent of dbuild's registry-tag arch_suffix.
             fetch -qo /tmp/build-tools.tar.gz \
-              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}${{ matrix.arch_suffix }}.tar.gz"
+              "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${{ needs.detect.outputs.build_tools_ref }}${{ matrix.arch != 'amd64' && format('-{0}', matrix.arch) || '' }}.tar.gz"
             mkdir -p /tmp/build-tools
             tar -xzf /tmp/build-tools.tar.gz -C /tmp/build-tools
             mkdir -p /etc/pkg
@@ -243,7 +244,7 @@ jobs:
 
             # Screenshot deps: amd64 only (no aarch64 chromium); dbuild then
             # auto-downgrades screenshot -> health on aarch64.
-            if [ -z "${{ matrix.arch_suffix }}" ] && { grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; }; then
+            if [ "${{ matrix.arch }}" = "amd64" ] && { grep -q 'mode:.*screenshot' .daemonless/config.yaml 2>/dev/null || grep -q 'mode:.*screenshot' .dbuild.yaml 2>/dev/null; }; then
               SS_REF=$(echo "${{ needs.detect.outputs.build_tools_ref }}" | sed 's/\(freebsd-[0-9.]*-\)/\1screenshot-/')
               fetch -qo /tmp/build-tools-screenshot.tar.gz \
                 "https://github.com/daemonless/build-tools/releases/download/${{ needs.detect.outputs.build_tools_ref }}/${SS_REF}.tar.gz"
