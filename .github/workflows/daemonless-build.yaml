@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: ''
+      dbuild_ref:
+        description: 'Override the dbuild ref to fetch (branch, tag, or commit SHA). Blank = use the pinned release. For testing unreleased dbuild changes only -- do not set this for real fleet images.'
+        required: false
+        type: string
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -80,7 +85,7 @@ jobs:
         id: detect
         run: |
           # Fetch dbuild
-          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
           ARCH_FILTER="${{ inputs.arch }}"
@@ -108,7 +113,7 @@ jobs:
 
       - name: dbuild lint
         run: |
-          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
           {
@@ -150,7 +155,7 @@ jobs:
       - name: Generate Containerfile/README from templates
         if: inputs.generate
         run: |
-          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
           pip install -q PyYAML jinja2
@@ -212,7 +217,7 @@ jobs:
 
             # Fetch dbuild
             fetch -qo /tmp/dbuild.tar.gz \
-              "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz"
+              "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz"
             mkdir -p /tmp/dbuild
             tar -xzf /tmp/dbuild.tar.gz -C /tmp/dbuild --strip-components=1
             export PYTHONPATH="/tmp/dbuild"
@@ -449,7 +454,7 @@ jobs:
 
             # Fetch dbuild
             fetch -qo /tmp/dbuild.tar.gz \
-              "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz"
+              "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz"
             mkdir -p /tmp/dbuild
             tar -xzf /tmp/dbuild.tar.gz -C /tmp/dbuild --strip-components=1
             export PYTHONPATH="/tmp/dbuild"
@@ -534,7 +539,7 @@ jobs:
         id: generate
         if: inputs.generate
         run: |
-          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
           pip install -q PyYAML jinja2
