@@ -13,13 +13,15 @@ Uses registry backends from :mod:`dbuild.registry` for login.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 
 from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
-from dbuild.config import Config, arch_tag_suffix, variant_filter_matches
+from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
+from dbuild.push import _version_tag
 
 # ── Architecture tag suffix convention ────────────────────────────────
 # Uses the shared `config.arch_tag_suffix` so the tags created by `push`
@@ -125,6 +127,19 @@ def _image_available(image_ref: str) -> bool:
     return remote.returncode == 0
 
 
+def _remote_image_version(image_ref: str) -> str | None:
+    """Read the ``org.opencontainers.image.version`` label from a remote image."""
+    cmd = [*podman._priv_prefix(), "skopeo", "inspect", f"docker://{image_ref}"]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return (data.get("Labels") or {}).get("org.opencontainers.image.version") or None
+
+
 # ── Create manifest for one tag ──────────────────────────────────────
 
 def _assemble_and_push(cfg: Config, image_prefix: str, tag: str, arch_refs: list[str]) -> bool:
@@ -192,6 +207,53 @@ def _create_manifest_for_tag(
             _assemble_and_push(cfg, f"{mirror_url}/{cfg.image}", tag, mirror_refs)
         else:
             log.warn(f"No mirrored images found on {mirror_url} for :{tag} -- skipping mirror manifest")
+
+    return ok
+
+
+def _create_versioned_manifest(
+    cfg: Config,
+    variant: Variant,
+    mirror_url: str | None = None,
+) -> bool:
+    """Create and push a manifest for *variant*'s versioned tag (e.g. ``2.9.0_2-pkg-latest``).
+
+    push.py already writes this exact tag per-arch (e.g. ``2.9.0_2-pkg-latest-amd64``),
+    but nothing previously stitched those into a combined manifest-list tag --
+    version trackers reading the registry had nothing current to find, only
+    stale bare-version tags left over from before an image went multi-arch
+    (smokeping 2026-08-10). Version is read from an already-pushed arch
+    image's OCI label, the same source push.py trusts. Skips silently (no
+    versioned tag pushed) if the version can't be determined -- a missing
+    tag is safer than a wrong one.
+    """
+    arch_refs: list[str] = []
+    mirror_refs: list[str] = []
+    version: str | None = None
+    for arch in cfg.architectures:
+        arch_specific_tag = _arch_tag(variant.tag, arch, cfg.architectures)
+        image_ref = f"{cfg.full_image}:{arch_specific_tag}"
+        if _image_available(image_ref):
+            arch_refs.append(image_ref)
+            if version is None:
+                version = _remote_image_version(image_ref)
+        if mirror_url:
+            mirror_ref = f"{mirror_url}/{cfg.image}:{arch_specific_tag}"
+            if _image_available(mirror_ref):
+                mirror_refs.append(mirror_ref)
+
+    if not arch_refs:
+        return False
+    if not version:
+        log.warn(f"Could not determine version for :{variant.tag} -- skipping versioned manifest")
+        return False
+
+    vtag = _version_tag(version, variant.tag)
+    log.step(f"Manifest :{vtag}")
+    ok = _assemble_and_push(cfg, cfg.full_image, vtag, arch_refs)
+
+    if mirror_url and mirror_refs:
+        _assemble_and_push(cfg, f"{mirror_url}/{cfg.image}", vtag, mirror_refs)
 
     return ok
 
@@ -271,6 +333,14 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             created.append(tag)
         else:
             failed.append(tag)
+
+    # ---- versioned manifests (e.g. 2.9.0_2-pkg-latest), one per variant ----
+    for variant in cfg.variants:
+        if not variant_filter_matches(variant.tag, variant_filter):
+            continue
+        vtag_ok = _create_versioned_manifest(cfg, variant, mirror_url)
+        if vtag_ok:
+            created.append(f"{variant.tag} (versioned)")
 
     # ---- summary ----
     log.step("Manifest summary")
