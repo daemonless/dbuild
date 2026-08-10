@@ -229,14 +229,15 @@ def _create_versioned_manifest(
     """
     arch_refs: list[str] = []
     mirror_refs: list[str] = []
-    version: str | None = None
+    versions: dict[str, str] = {}  # arch -> version, to check agreement below
     for arch in cfg.architectures:
         arch_specific_tag = _arch_tag(variant.tag, arch, cfg.architectures)
         image_ref = f"{cfg.full_image}:{arch_specific_tag}"
         if _image_available(image_ref):
             arch_refs.append(image_ref)
-            if version is None:
-                version = _remote_image_version(image_ref)
+            v = _remote_image_version(image_ref)
+            if v:
+                versions[arch] = v
         if mirror_url:
             mirror_ref = f"{mirror_url}/{cfg.image}:{arch_specific_tag}"
             if _image_available(mirror_ref):
@@ -244,10 +245,15 @@ def _create_versioned_manifest(
 
     if not arch_refs:
         return False
-    if not version:
+    if not versions:
         log.warn(f"Could not determine version for :{variant.tag} -- skipping versioned manifest")
         return False
+    if len(set(versions.values())) > 1:
+        detail = ", ".join(f"{a}={v}" for a, v in versions.items())
+        log.warn(f"Architectures disagree on version for :{variant.tag} ({detail}) -- skipping versioned manifest")
+        return False
 
+    version = next(iter(versions.values()))
     vtag = _version_tag(version, variant.tag)
     log.step(f"Manifest :{vtag}")
     ok = _assemble_and_push(cfg, cfg.full_image, vtag, arch_refs)
