@@ -233,7 +233,8 @@ appjail oci run \
 | `{{ tag_str }}` | {{ src_desc }} | {{ best_for }} |
 {%- endfor %}
 {%- else %}
-| `latest{{ suffix }}` | {% if upstream_binary %}**Upstream Binary**. Built from official release.{% else %}**FreeBSD Port**. Built from latest FreeBSD packages.{% endif %} | Most users — recommended. |
+{%- set solo_desc = variants[0].tag_desc if variants else none %}
+| `latest{{ suffix }}` | {% if solo_desc %}{{ solo_desc }}{% elif upstream_binary %}**Upstream Binary**. Built from official release.{% else %}**FreeBSD Port**. Built from latest FreeBSD packages.{% endif %} | Most users — recommended. |
 {%- if tags and 'pkg' in tags %}
 | `pkg{{ suffix }}` | **FreeBSD Quarterly**. Uses stable, tested packages. | Production stability. |
 | `pkg-latest{{ suffix }}` | **FreeBSD Latest**. Rolling package updates. | Staying current. |
