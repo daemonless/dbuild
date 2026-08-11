@@ -331,13 +331,19 @@ Source: dbuild templates
 {{ readme.version_tags }}
 {%- elif render_mode == "mkdocs" and 'aarch64' in (architectures | default(['amd64'])) %}
 
+=== "Shared (recommended)"
+
+    Multi-arch manifests — resolve automatically to the right image for your platform.
+
+    {{ version_tags_table() | indent(4) }}
+
 === "amd64"
 
-{{ version_tags_table() | indent(4, first=True) }}
+    {{ version_tags_table('-amd64') | indent(4) }}
 
 === "aarch64"
 
-{{ version_tags_table('-aarch64') | indent(4, first=True) }}
+    {{ version_tags_table('-aarch64') | indent(4) }}
 {%- else %}
 {{ version_tags_table() }}
 {%- endif %}
