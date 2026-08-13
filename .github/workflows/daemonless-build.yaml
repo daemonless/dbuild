@@ -631,3 +631,44 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/daemonless/daemonless-io/dispatches \
             -d '{"event_type": "status-update", "client_payload": {"image": "${{ inputs.image_name }}"}}'
+
+  # Announce genuinely new images to a dedicated Discord channel. Runs once
+  # after the whole build matrix (not per variant/arch leg) so a new image
+  # with multiple variants doesn't post multiple announcements.
+  announce-new-container:
+    needs: build
+    if: success() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Announce new container
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANNOUNCE_WEBHOOK: ${{ secrets.DISCORD_ANNOUNCE_WEBHOOK || secrets.DISCORD_WEBHOOK }}
+        run: |
+          set -e
+          [ -f .daemonless/config.yaml ] || exit 0
+          [ -n "$ANNOUNCE_WEBHOOK" ] || exit 0
+
+          # Checkouts are shallow (fetch-depth: 1), so local `git log`
+          # can't tell "first commit ever" from "just happens to be the
+          # only commit we fetched" -- query the GitHub API instead, which
+          # isn't affected by clone depth.
+          COMMIT_COUNT=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits?path=.daemonless/config.yaml&sha=${{ github.sha }}&per_page=2" \
+            | jq 'length')
+          [ "$COMMIT_COUNT" = "1" ] || exit 0
+
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+
+          curl -sS -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"🚀 New Container Fleet Addition: ${{ inputs.image_name }}\",\"url\":\"$COMMIT_URL\",\"color\":15844367,\"fields\":[{\"name\":\"Registry\",\"value\":\"[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})\",\"inline\":true},{\"name\":\"Commit\",\"value\":\"[$SHORT_SHA]($COMMIT_URL)\",\"inline\":true},{\"name\":\"Branch\",\"value\":\"${{ github.ref_name }}\",\"inline\":true}],\"footer\":{\"text\":\"Daemonless FreeBSD Native OCI Containers\"}}]}" \
+            "$ANNOUNCE_WEBHOOK"
