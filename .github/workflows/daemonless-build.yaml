@@ -649,21 +649,41 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANNOUNCE_WEBHOOK: ${{ secrets.DISCORD_ANNOUNCE_WEBHOOK || secrets.DISCORD_WEBHOOK }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -e
           [ -f .daemonless/config.yaml ] || exit 0
           [ -n "$ANNOUNCE_WEBHOOK" ] || exit 0
 
-          # Checkouts are shallow (fetch-depth: 1), so local `git log`
-          # can't tell "first commit ever" from "just happens to be the
-          # only commit we fetched" -- query the GitHub API instead, which
-          # isn't affected by clone depth.
-          COMMIT_COUNT=$(curl -sS \
+          # Announce a genuinely-new image exactly once. Checkouts are shallow
+          # (fetch-depth: 1), so local `git log` can't see full history -- query
+          # the GitHub API instead, which isn't affected by clone depth.
+          #
+          # An image is "new" the first (and only) time .daemonless/config.yaml
+          # is committed. Find that commit:
+          ADD_SHA=$(curl -sS \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/commits?path=.daemonless/config.yaml&sha=${{ github.sha }}&per_page=2" \
-            | jq 'length')
-          [ "$COMMIT_COUNT" = "1" ] || exit 0
+            | jq -r 'if length == 1 then .[0].sha else empty end')
+          [ -n "$ADD_SHA" ] || exit 0
+
+          # Only announce if that add-commit is part of THIS push. This fires
+          # once (subsequent sbom/rebuild pushes don't reintroduce it) but --
+          # unlike an "add-commit == tip sha" check -- still works when the image
+          # lands via a merge commit, where the tip sha isn't the file-change sha.
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            IN_PUSH=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/compare/${BEFORE_SHA}...${{ github.sha }}" \
+              | jq -r --arg s "$ADD_SHA" '[.commits[].sha] | index($s) != null')
+          else
+            # Brand-new repo (first push): before is empty/zeroes, so the
+            # add-commit is inherently part of what this push introduced.
+            IN_PUSH=true
+          fi
+          [ "$IN_PUSH" = "true" ] || exit 0
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
