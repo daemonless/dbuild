@@ -68,7 +68,8 @@ services:
     healthcheck:
       test: ["CMD", "{{ healthcheck }}"]
 {%- endif %}
-    restart: unless-stopped
+    # always (not unless-stopped) so FreeBSD's podman rc.d auto-starts it at boot
+    restart: always
 {%- endmacro %}
 
 {%- macro appjail_director_snippet(override_port=None) -%}
