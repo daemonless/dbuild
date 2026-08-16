@@ -58,10 +58,11 @@ services:
 {%- endif %}
 {%- endfor %}
 {%- endif %}
-{%- if jail_allow %}
+{%- if annotations %}
     annotations:
-{%- for opt in jail_allow %}
-      org.freebsd.jail.{{ opt }}: "true"
+{%- for a in annotations %}
+{%- set kv = a.split("=", 1) %}
+      {{ kv[0] }}: "{{ kv[1] }}"
 {%- endfor %}
 {%- endif %}
 {%- if healthcheck %}
@@ -119,8 +120,8 @@ podman run -d --name {{ name }} \
   -p {{ p.port }}:{{ p.target }} \
 {%- endif %}
 {%- endfor %}
-{%- for opt in jail_allow %}
-  --annotation 'org.freebsd.jail.{{ opt }}=true' \
+{%- for a in annotations %}
+  --annotation '{{ a }}' \
 {%- endfor %}
 {%- if healthcheck %}
   --health-cmd {{ healthcheck }} \
@@ -196,10 +197,11 @@ appjail oci run \
       - "{{ vol_src(v) }}:{{ vol_tgt(v) }}"{{ " # optional" if v.optional else "" }}
 {%- endfor %}
 {%- endif %}
-{%- if jail_allow %}
+{%- if annotations %}
     annotation:
-{%- for opt in jail_allow %}
-      org.freebsd.jail.{{ opt }}: "true"
+{%- for a in annotations %}
+{%- set kv = a.split("=", 1) %}
+      {{ kv[0] }}: "{{ kv[1] }}"
 {%- endfor %}
 {%- endif %}
 {%- endmacro -%}
