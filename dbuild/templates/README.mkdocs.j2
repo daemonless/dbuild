@@ -71,6 +71,11 @@ description: "{{ description }} Built natively for FreeBSD with s6 supervision, 
 {% endblock %}
 
 {% block prerequisites %}
+{%- if readme and readme.prerequisites %}
+
+{{ readme.prerequisites }}
+
+{%- endif %}
 
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](../guides/quick-start.md) for host setup instructions, including the security model for host vs. container privileges.
 {% endblock %}
