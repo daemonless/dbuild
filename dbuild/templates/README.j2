@@ -168,6 +168,35 @@ appjail oci run \
   {{ reg_var }}/{{ name }}:latest {{ name }}
 {%- endmacro %}
 
+{#- Bastille OCI (experimental). Bastille shares the host network stack
+    (`inherit`) and persists the image's declared VOLUMEs under --data-path.
+    Its compose parser only reads image/container_name/network_mode/environment/
+    ports, so we hand-shape a minimal file rather than reuse compose_snippet. -#}
+{%- macro bastille_snippet(override_port=None) -%}
+bastille create -O \
+{%- for e in env %}
+  --env {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
+{%- endfor %}
+{%- if volumes %}
+  --data-path {{ cfg_root }}/{{ name }} \
+{%- endif %}
+  {{ name }} {{ reg_var }}/{{ name }}:latest inherit
+{%- endmacro %}
+
+{%- macro bastille_compose_snippet(override_port=None) -%}
+services:
+  {{ name }}:
+    image: "{{ reg_var }}/{{ name }}:latest"
+    container_name: {{ name }}
+    network_mode: host  # jail shares host networking
+{%- if env %}
+    environment:
+{%- for e in env %}
+      - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}
+{%- endfor %}
+{%- endif %}
+{%- endmacro %}
+
 {%- macro ansible_snippet(override_port=None) -%}
 - name: Deploy {{ name }}
   containers.podman.podman_container:
@@ -379,6 +408,13 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```yaml{% if env and image_class == "stack" %} { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }{% endif %}
 {{ compose_snippet() }}
 ```
+{%- if image_class == "stack" %}
+
+Then run `podman-compose up -d`.
+{%- else %}
+
+Save as `compose.yaml`, then run `podman-compose up -d`.
+{%- endif %}
 {%- if appjail_enabled %}
 
 ### AppJail Director
@@ -389,7 +425,10 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {{ appjail_director_snippet() }}
 {%- endif %}
 
+Save the files above, then run `appjail-director up`.
+
 {%- if ports %}
+
 **Note**: Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the IPv4 address assigned by the virtual network.
 {%- endif %}
 {%- endif %}
@@ -402,6 +441,8 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```bash
 {{ cli_snippet() }}
 ```
+
+Save as `run.sh`, then run `sh run.sh`.
 {%- endif %}
 {%- if image_class == "service" %}
 {%- if appjail_enabled %}
@@ -412,9 +453,29 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {{ appjail_snippet() }}
 ```
 
+Save as `run.sh`, then run `sh run.sh`.
+
 {%- if ports %}
+
 **Note**: Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the IPv4 address assigned by the virtual network.
 {%- endif %}
+{%- endif %}
+{%- if bastille_enabled %}
+
+### Bastille
+
+> [!WARNING]
+> Bastille's OCI support is **experimental**. It requires `buildah`, shares the host network stack (`inherit`), and persists image-declared volumes under `--data-path`.
+
+```yaml
+{{ bastille_compose_snippet() }}
+```
+
+Save as `podman-compose.yml`, then run `bastille up`. Or via CLI:
+
+```bash
+{{ bastille_snippet() }}
+```
 {%- endif %}
 
 ### Ansible
@@ -422,6 +483,8 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```yaml
 {{ ansible_snippet() }}
 ```
+
+Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
 {%- endif %}
 {%- endblock %}
 

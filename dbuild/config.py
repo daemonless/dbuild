@@ -362,6 +362,9 @@ class Metadata:
     appjail: dict[str, Any] | None = field(default=None, metadata={
         "desc": "Enable AppJail documentation. Bare key or `true` uses defaults; pass a dict for custom config.",
     })
+    bastille: dict[str, Any] | None = field(default=None, metadata={
+        "desc": "Bastille OCI documentation. Enabled by default; set `bastille: false` to disable. Pass a dict for custom config.",
+    })
     healthcheck: dict[str, Any] | None = field(default=None, metadata={
         "desc": "Docker-style healthcheck definition, used as the CIT health URL if `cit.health` is not set.",
     })
@@ -637,6 +640,7 @@ def _parse_service_data(
 
 
 _APPJAIL_ABSENT = object()
+_BASTILLE_ABSENT = object()
 _DEPRECATED_ABSENT = object()
 
 
@@ -652,6 +656,22 @@ def _parse_appjail(meta: dict[str, Any]) -> dict[str, Any] | None:
     if raw is False:
         return None
     if raw is _APPJAIL_ABSENT or raw is None or raw is True or raw == {}:
+        return {}
+    return raw
+
+
+def _parse_bastille(meta: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse bastille from x-daemonless metadata.
+
+    - Key absent → {} (enabled by default, template defaults)
+    - ``bastille:`` (bare/null) or ``bastille: true`` → {} (enabled, template defaults)
+    - ``bastille: false`` → None (explicitly disabled)
+    - ``bastille: {cli: {...}}`` → that dict (enabled, custom config)
+    """
+    raw = meta.get("bastille", _BASTILLE_ABSENT)
+    if raw is False:
+        return None
+    if raw is _BASTILLE_ABSENT or raw is None or raw is True or raw == {}:
         return {}
     return raw
 
@@ -711,6 +731,7 @@ def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = Non
         notes=meta.get("notes", ""),
         community=meta.get("community", ""),
         appjail=_parse_appjail(meta),
+        bastille=_parse_bastille(meta),
         healthcheck=meta.get("healthcheck"),
         docs=meta.get("docs", {}),
         image_class=meta.get("class", "service"),
