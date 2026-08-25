@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 
 from dbuild import ci as ci_mod
 from dbuild import log, podman
@@ -27,6 +28,9 @@ from dbuild.config import Config, Variant, arch_tag_suffix, default_arch, varian
 def _version_tag(version: str, variant_tag: str) -> str:
     """Build a version tag like ``32.0.5`` or ``32.0.5-pkg``."""
     v = version.lstrip("v")
+    # OCI tags allow only [A-Za-z0-9_.-]; FreeBSD epoch versions ("8.1.2_1,1")
+    # carry a comma. Faithful version stays in the image.version label.
+    v = re.sub(r"[^A-Za-z0-9_.-]", "_", v)
     if variant_tag == "latest":
         return v
     return f"{v}-{variant_tag}"
