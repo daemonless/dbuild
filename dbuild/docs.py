@@ -313,6 +313,10 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "io.daemonless.appjail" in a for a in annotations
     )
 
+    # Check for Bastille OCI support (enabled by default; None = bastille: false)
+    bastille_meta = meta.bastille if hasattr(meta, "bastille") else {}
+    bastille_enabled = bastille_meta is not None
+
     # Community: Use CLI override, metadata if set (Format: Name:URL), or default to Daemonless Discord.
     community_name = ""
     community_url = ""
@@ -377,6 +381,8 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "architectures": cfg.architectures,
         "appjail": appjail_meta,
         "appjail_enabled": appjail_enabled,
+        "bastille": bastille_meta,
+        "bastille_enabled": bastille_enabled,
         "docs": meta.docs,
         "deprecated": meta.deprecated,
         "screenshots": _collect_screenshots(Path.cwd()),

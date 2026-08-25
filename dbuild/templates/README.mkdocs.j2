@@ -82,8 +82,9 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 {% block deployment_tabs %}
 {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
-{%- if appjail_enabled %}
-{#- Two backends: nest formats under a per-runtime outer tab. #}
+{%- set bastille_tab = bastille_enabled and image_class == "service" %}
+{%- if appjail_enabled or bastille_tab %}
+{#- More than one runtime: nest formats under a per-runtime outer tab. #}
 === ":material-docker: Podman"
 
 {% if image_class == "service" %}
@@ -93,12 +94,16 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
         {{ compose_snippet(port_var) | indent(8) }}
         ```
 
+        Save as `compose.yaml`, then run `podman-compose up -d`.
+
 {% endif %}
     === ":material-console: CLI"
 
         ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
         {{ cli_snippet(port_var) | indent(8) }}
         ```
+
+        Save as `run.sh`, then run `sh run.sh`.
 {% if image_class == "service" %}
 
     === ":simple-ansible: Ansible"
@@ -106,8 +111,11 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
         ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
         {{ ansible_snippet(port_var) | indent(8) }}
         ```
+
+        Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
 {% endif %}
 
+{% if appjail_enabled %}
 === ":appjail-appjail: AppJail"
 
 {% if image_class == "service" %}
@@ -115,12 +123,37 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
         {{ appjail_director_snippet(port_var) | indent(8) }}
 
+        Save the files above, then run `appjail-director up`.
+
 {% endif %}
     === ":material-console: CLI"
 
         ```bash { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="run.sh" }
         {{ appjail_snippet(port_var) | indent(8) }}
         ```
+
+        Save as `run.sh`, then run `sh run.sh`.
+{% endif %}
+{% if bastille_tab %}
+=== ":bastille-bastille: Bastille"
+
+    !!! warning "Experimental"
+        Bastille's OCI support is experimental. It requires `buildah`, shares the host network stack (`inherit`), and persists image-declared volumes under `--data-path`.
+
+    === ":material-file-document-outline: Compose"
+
+        ```yaml { data-zip-bundle="{{ name }}-bastille" data-zip-filename="podman-compose.yml" }
+        {{ bastille_compose_snippet(port_var) | indent(8) }}
+        ```
+
+        Save as `podman-compose.yml`, then run `bastille up`.
+
+    === ":material-console: CLI"
+
+        ```bash { data-zip-bundle="{{ name }}-bastille-cli" data-zip-filename="run.sh" }
+        {{ bastille_snippet(port_var) | indent(8) }}
+        ```
+{% endif %}
 {%- else %}
 {#- Podman-only: keep formats flat, no redundant outer runtime tab. #}
 {% if image_class == "service" %}
@@ -130,12 +163,16 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     {{ compose_snippet(port_var) | indent(4) }}
     ```
 
+    Save as `compose.yaml`, then run `podman-compose up -d`.
+
 {% endif %}
 === ":material-console: Podman CLI"
 
     ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
     {{ cli_snippet(port_var) | indent(4) }}
     ```
+
+    Save as `run.sh`, then run `sh run.sh`.
 {%- if image_class == "service" %}
 
 === ":simple-ansible: Ansible"
@@ -143,6 +180,8 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
     {{ ansible_snippet(port_var) | indent(4) }}
     ```
+
+    Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
 {%- endif %}
 {%- endif %}
 {% endblock %}
