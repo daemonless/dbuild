@@ -111,6 +111,26 @@ def logs(jail_name: str, *, quiet: bool = False) -> str:
 
 # ── OCI run / stop / destroy ─────────────────────────────────────────
 
+def _kernel_jail_params() -> set[str]:
+    """Return jail param names the running kernel supports, e.g. ``allow.vmm``.
+
+    Reads ``sysctl -aN security.jail.param``; params registered by unloaded
+    modules are absent.  Returns an empty set on failure (no filtering).
+    """
+    result = subprocess.run(
+        ["sysctl", "-aN", "security.jail.param"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    prefix = "security.jail.param."
+    return {
+        line.removeprefix(prefix).rstrip(".")
+        for line in result.stdout.splitlines()
+        if line.startswith(prefix)
+    }
+
+
 def oci_run(jail_name: str, image_ref: str, *, allow: list[str] | None = None) -> None:
     """Start *jail_name* from *image_ref* via ``appjail oci run -d``.
 
@@ -126,9 +146,18 @@ def oci_run(jail_name: str, image_ref: str, *, allow: list[str] | None = None) -
     ``appjail oci run -o`` only accepts high-level "quick" options, not raw
     jail parameters.
     """
-    # Build the template lines
+    # Build the template lines. Drop allow.* params the running kernel does
+    # not know (e.g. allow.vmm without vmm.ko loaded): jail params are
+    # registered by their modules, and appjail-config hard-errors on unknown
+    # params where ocijail merely warns.
     base_allows = {"allow.socket_af", "allow.reserved_ports"}
     extra = {f"allow.{a.removeprefix('allow.')}" for a in (allow or [])}
+    known = _kernel_jail_params()
+    if known:
+        dropped = sorted(a for a in extra if a not in known)
+        if dropped:
+            log.warn(f"appjail: dropping unsupported jail params: {', '.join(dropped)}")
+            extra -= set(dropped)
     all_allows = base_allows | extra
 
     template_lines = [

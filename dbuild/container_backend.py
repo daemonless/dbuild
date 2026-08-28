@@ -124,10 +124,15 @@ class AppJailBackend(ContainerBackend):
                 "appjail backend does not support env/volumes "
                 "(used by the --puid test); run --puid with --backend podman",
             )
+        # Only allow.* annotations map to appjail template params. Value-typed
+        # params (children.max, enforce_statfs, devfs_ruleset, name, ...) have
+        # no equivalent here, and appjail-config hard-errors on unknown params
+        # (unlike ocijail, which warns and ignores).
         jail_allow = [
-            k.replace("org.freebsd.jail.", "")
-            for k in annotations
-            if k.startswith("org.freebsd.jail.")
+            k.removeprefix("org.freebsd.jail.")
+            for k, v in annotations.items()
+            if k.startswith("org.freebsd.jail.allow.")
+            and str(v).lower() in ("true", "1", "required")
         ]
         log.info(f"AppJail jail: {cname}")
         aj.oci_run(cname, image_ref, allow=jail_allow or None)
