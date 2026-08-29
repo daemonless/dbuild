@@ -474,6 +474,9 @@ def run(args: argparse.Namespace) -> int:
 
     run_path = base / "root" / "etc" / "services.d" / app_name / "run"
     created += _scaffold("run.sh", run_path, context, dry_run, executable=True)
+    # s6 only opens the readiness FD when notification-fd exists (content '3');
+    # without it the run script's s6-ready-when is a silent no-op
+    created += int(_write_file(run_path.parent / "notification-fd", "3\n", dry_run))
     created += _scaffold("healthz.sh", base / "root" / "healthz", context, dry_run, executable=True)
 
     if getattr(args, "woodpecker", False):

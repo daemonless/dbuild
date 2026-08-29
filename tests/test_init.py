@@ -68,6 +68,23 @@ class TestRun(unittest.TestCase):
         self.assertIn("- tag: pkg-latest", content)
         self.assertIn('BASE_VERSION: "15.1-latest"', content)
 
+    def test_scaffolds_ready_signal_files(self):
+        """run.sh uses s6-ready-when, so notification-fd must exist with '3'."""
+        with tempfile.TemporaryDirectory() as d, patch(
+            "dbuild.init.Path.cwd", return_value=Path(d)
+        ):
+            run(_base_args())
+            svc = Path(d) / "root" / "etc" / "services.d" / "testapp"
+            self.assertEqual((svc / "notification-fd").read_text().strip(), "3")
+            run_text = (svc / "run").read_text()
+            healthz = (Path(d) / "root" / "healthz").read_text()
+        self.assertIn("s6-ready-when /healthz", run_text)
+        # exec must continue onto the arg lines, not drop them
+        self.assertIn("exec /usr/local/bin/s6-setuidgid bsd \\\n", run_text)
+        # cloudflared leftovers must not leak into generic scaffolds
+        self.assertNotIn("TUNNEL_TOKEN", run_text)
+        self.assertNotIn("TUNNEL_TOKEN", healthz)
+
 
 class TestFlavors(unittest.TestCase):
     """Tests for --flavors validation and wiring in run()."""
