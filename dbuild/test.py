@@ -419,20 +419,21 @@ def _test_screenshot(
     save_to: str | None = None,
     ssim_threshold: float | None = None,
     edge_threshold: float | None = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict[str, float]]:
     """Capture and verify a screenshot.
 
-    Returns ``(passed, message)``.
+    Returns ``(passed, message, metrics)`` -- metrics are the verify scores
+    (blank_std, edge_ratio, ssim) for the results JSON.
     """
     try:
         from dbuild.screenshot import capture
     except ImportError as e:
-        return False, f"Screenshot dependencies not installed: {e}"
+        return False, f"Screenshot dependencies not installed: {e}", {}
 
     try:
         from dbuild.verify import verify
     except ImportError as e:
-        return False, f"Verify dependencies not installed: {e}"
+        return False, f"Verify dependencies not installed: {e}", {}
 
     scheme = "https" if https else "http"
     url_path = screenshot_path or "/"
@@ -444,31 +445,32 @@ def _test_screenshot(
 
     try:
         if not capture(url, screenshot_file, timeout=30, min_wait=screenshot_wait):
-            return False, "Screenshot capture failed"
+            return False, "Screenshot capture failed", {}
 
         # Basic verification
-        passed, msg = verify(screenshot_file, edge_threshold=edge_threshold)
+        passed, msg, metrics = verify(screenshot_file, edge_threshold=edge_threshold)
         if not passed:
             if save_to:
                 _copy_file(screenshot_file, save_to)
-            return False, f"Screenshot verification failed: {msg}"
+            return False, f"Screenshot verification failed: {msg}", metrics
 
         # Baseline comparison
         if baseline and baseline.is_file():
             log.info(f"Comparing to baseline: {baseline}")
-            passed, msg = verify(
+            passed, msg, metrics = verify(
                 screenshot_file, str(baseline),
                 threshold=ssim_threshold, edge_threshold=edge_threshold,
             )
             if not passed:
                 if save_to:
                     _copy_file(screenshot_file, save_to)
-                return False, f"Baseline comparison failed: {msg}"
+                return False, f"Baseline comparison failed: {msg}", metrics
+            log.info(msg)
 
         if save_to:
             _copy_file(screenshot_file, save_to)
 
-        return True, "Screenshot verified"
+        return True, "Screenshot verified", metrics
     finally:
         with contextlib.suppress(OSError):
             os.unlink(screenshot_file)
@@ -507,7 +509,7 @@ def _write_json_result(
     path: str,
     image: str,
     mode: str,
-    results: dict[str, str],
+    results: dict[str, str | float],
     passed: bool,
 ) -> None:
     """Write a JSON result file for CI consumption."""
@@ -554,7 +556,7 @@ def _functional_checks(
     test: AppTestConfig,
     variant: Variant,
     baseline: Path | None,
-    results: dict[str, str],
+    results: dict[str, str | float],
     compose_mode: bool,
     compose_file: Path | None,
 ) -> int:
@@ -630,7 +632,7 @@ def _functional_checks(
 
     # === SCREENSHOT TEST ===
     screenshot_save = f"/tmp/cit-screenshot-{variant.tag}.png"
-    passed, msg = _test_screenshot(
+    passed, msg, metrics = _test_screenshot(
         ip,
         port,
         https=https,
@@ -641,6 +643,7 @@ def _functional_checks(
         ssim_threshold=test.ssim_threshold,
         edge_threshold=test.edge_threshold,
     )
+    results.update(metrics)
     if not passed:
         results["screenshot"] = "fail"
         log.error(msg)
@@ -767,7 +770,7 @@ def _test_variant(
     ready_patterns = test.ready or _DEFAULT_READY_PATTERNS
 
     # -- Result tracking --
-    results: dict[str, str] = {
+    results: dict[str, str | float] = {
         "shell": "skip",
         "ready": "skip",
         "port": "skip",
@@ -1131,7 +1134,7 @@ def _puid_phase(
     volume: str,
     annotations: dict[str, str],
     wait: int,
-    results: dict[str, str],
+    results: dict[str, str | float],
     ignore: list[str] | None = None,
 ) -> int:
     """Ownership check, integrated into the CIT flow.
