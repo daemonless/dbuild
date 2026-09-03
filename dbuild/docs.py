@@ -605,10 +605,18 @@ def render_generated(
     if _readme_generation_mode(cfg, base) != "skip":
         try:
             template = env.get_template("README.j2")
-            outputs["README.md"] = template.render(context, render_mode="github")
         except jinja2.TemplateNotFound:
             # Matches run(): warn + skip; README.md is left untouched.
-            pass
+            template = None
+        if template is not None:
+            try:
+                outputs["README.md"] = template.render(context, render_mode="github")
+            except jinja2.TemplateNotFound as e:
+                # A TemplateNotFound here comes from an {% include %} inside
+                # README.j2, not README.j2 itself, so name the real culprit.
+                errors.append(
+                    f"README.j2 failed to render: included template '{e.name}' not found"
+                )
 
     # Containerfiles — repo-only loader (local includes, no bundled fallback).
     for j2_path in sorted(base.glob("Containerfile*.j2")):
@@ -654,7 +662,8 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
 
     outputs, errors = render_generated(cfg, args, base)
 
-    if readme_mode != "skip" and "README.md" not in outputs:
+    if (readme_mode != "skip" and "README.md" not in outputs
+            and not any("README.j2" in e for e in errors)):
         log.warn("README.j2 template not found, skipping README.md")
 
     for name, content in outputs.items():
