@@ -138,15 +138,15 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 === ":bastille-bastille: Bastille"
 
     !!! warning "Experimental"
-        Bastille's OCI support is experimental. It requires `buildah`, shares the host network stack (`inherit`), and persists image-declared volumes under `--data-path`.
+        Bastille's OCI support is experimental. It requires `buildah` and shares the host network stack (`inherit`). Mount volumes with `--volume HOST JAIL`; without it, image-declared volumes are stored under `${bastille_volumesdir}/${jail}`.
 
     === ":material-file-document-outline: Compose"
 
-        ```yaml { data-zip-bundle="{{ name }}-bastille" data-zip-filename="podman-compose.yml" }
+        ```yaml { data-zip-bundle="{{ name }}-bastille" data-zip-filename="bastille-compose.yml" }
         {{ bastille_compose_snippet(port_var) | indent(8) }}
         ```
 
-        Save as `podman-compose.yml`, then run `bastille up`.
+        Save as `bastille-compose.yml`, then run `bastille up`.
 
     === ":material-console: CLI"
 
