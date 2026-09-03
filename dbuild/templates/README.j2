@@ -169,30 +169,39 @@ appjail oci run \
 {%- endmacro %}
 
 {#- Bastille OCI (experimental). Bastille shares the host network stack
-    (`inherit`) and persists the image's declared VOLUMEs under --data-path.
-    Its compose parser only reads image/container_name/network_mode/environment/
-    ports, so we hand-shape a minimal file rather than reuse compose_snippet. -#}
+    (`inherit`). Volumes mount via `--volume HOST JAIL`; without the flag,
+    image-declared VOLUMEs land under ${bastille_volumesdir}/${jail}.
+    `bastille up` reads bastille-compose.yml with its own schema
+    (name/image/network/ports/environment/volumes/depend), so we hand-shape
+    the file rather than reuse compose_snippet. -#}
 {%- macro bastille_snippet(override_port=None) -%}
 bastille create -O \
 {%- for e in env %}
   --env {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
 {%- endfor %}
-{%- if volumes %}
-  --data-path {{ cfg_root }}/{{ name }} \
-{%- endif %}
+{%- for v in volumes %}
+  --volume {{ vol_src(v) }} {{ v.path }} \
+{%- endfor %}
   {{ name }} {{ reg_var }}/{{ name }}:latest inherit
 {%- endmacro %}
 
 {%- macro bastille_compose_snippet(override_port=None) -%}
 services:
   {{ name }}:
+    name: {{ name }}
     image: "{{ reg_var }}/{{ name }}:latest"
-    container_name: {{ name }}
-    network_mode: host  # jail shares host networking
+    network:
+      - mode: host
 {%- if env %}
     environment:
 {%- for e in env %}
       - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}
+{%- endfor %}
+{%- endif %}
+{%- if volumes %}
+    volumes:
+{%- for v in volumes %}
+      - "{{ vol_src(v) }}:{{ v.path }}"
 {%- endfor %}
 {%- endif %}
 {%- endmacro %}
@@ -465,13 +474,13 @@ Save as `run.sh`, then run `sh run.sh`.
 ### Bastille
 
 > [!WARNING]
-> Bastille's OCI support is **experimental**. It requires `buildah`, shares the host network stack (`inherit`), and persists image-declared volumes under `--data-path`.
+> Bastille's OCI support is **experimental**. It requires `buildah` and shares the host network stack (`inherit`). Mount volumes with `--volume HOST JAIL`; without it, image-declared volumes are stored under `${bastille_volumesdir}/${jail}`.
 
 ```yaml
 {{ bastille_compose_snippet() }}
 ```
 
-Save as `podman-compose.yml`, then run `bastille up`. Or via CLI:
+Save as `bastille-compose.yml`, then run `bastille up`. Or via CLI:
 
 ```bash
 {{ bastille_snippet() }}
