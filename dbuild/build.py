@@ -107,6 +107,7 @@ def _build_variant(
     prefix: str | None = None,
     no_cache: bool = False,
     promote_local: bool = False,
+    cache_dirs: list[str] = []
 ) -> str:
     """Build one variant for one architecture.  Returns the build tag."""
     extra_args = []
@@ -148,7 +149,7 @@ def _build_variant(
     # ---- cache directories ----
     if not no_cache:
         cache_prefix = variant.cache_prefix
-        for cache_dir in variant.cache_dirs:
+        for cache_dir in variant.cache_dirs + cache_dirs:
             cache_dir = os.path.join(cache_prefix, cache_dir)
             extra_args.extend(["--volume", cache_dir])
 
@@ -230,6 +231,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
     parallel: int | None = getattr(args, "parallel", None)
     no_cache: bool = getattr(args, "no_cache", False)
     promote_local: bool = getattr(args, "promote_local", False)
+    cache_dirs: list[str] = getattr(args, "cache_dirs", [])
 
     variants = [
         v for v in cfg.variants
@@ -253,7 +255,13 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             for idx, variant in enumerate(variants):
                 colored = log.color_tag(f"{variant.tag:<{max_tag_len}}", idx)
                 prefix = f"[{colored}] "
-                futures[executor.submit(_build_variant, cfg, variant, arch, prefix=prefix, no_cache=no_cache, promote_local=promote_local)] = variant.tag
+                future = executor.submit(_build_variant, cfg, variant, arch,
+                    prefix=prefix,
+                    no_cache=no_cache,
+                    promote_local=promote_local,
+                    cache_dirs=cache_dirs
+                )
+                futures[future] = variant.tag
 
             for future in as_completed(futures):
                 tag = futures[future]
@@ -265,7 +273,11 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
                     raise
     else:
         for variant in variants:
-            ref = _build_variant(cfg, variant, arch, no_cache=no_cache, promote_local=promote_local)
+            ref = _build_variant(cfg, variant, arch,
+                no_cache=no_cache,
+                promote_local=promote_local,
+                cache_dirs=cache_dirs
+            )
             built.append(ref)
 
     log.step("Build summary")

@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-08-30" "dbuild 1.9.14" "User Commands"
+.TH DBUILD 1 "2026-09-03" "dbuild 1.9.14" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -43,6 +43,9 @@ build variants in parallel; optionally limit to N concurrent builds
 .TP
 \fB--promote-local\fR
 tag directly as the final tag(s) instead of build-{tag}, skipping the staging step normally promoted by `dbuild push`/`dbuild promote`. Useful for promoting a build into local final tags without pushing, or so another local Containerfile's FROM can resolve to this image without pulling from the registry.
+.TP
+\fB--cache-dirs\fR
+Mount a host directory into containers when executing RUN instructions during the build (pased as --volume). If the `build.variants.[].cache_dirs` parameter is defined, dbuild will use those directories and the ones specified in this parameter as cache directories.
 .RE
 .TP
 \fBci-prepare\fR
