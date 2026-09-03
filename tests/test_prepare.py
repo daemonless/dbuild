@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from dbuild import prepare
+from dbuild.ci.local import LocalCI
 
 
 class TestConfigurePkgRepo(unittest.TestCase):
@@ -130,6 +131,10 @@ class TestRun(unittest.TestCase):
         rc = prepare.run(args)
         self.assertEqual(rc, 1)
 
+    # The bare-metal tests must not depend on where they run: force detect()
+    # to LocalCI, or a real CI environment (GITHUB_ACTIONS set) skips the
+    # confirmation prompt and run() executes the real pipeline.
+    @patch("dbuild.prepare.ci_mod.detect", return_value=LocalCI())
     @patch("builtins.input", return_value="y")
     @patch("dbuild.prepare.configure_networking")
     @patch("dbuild.prepare.cleanup_containers")
@@ -139,24 +144,26 @@ class TestRun(unittest.TestCase):
     @patch("os.geteuid", return_value=0)
     def test_bare_metal_confirm_yes(self, _euid, mock_pkg, mock_install,
                                     mock_ocijail, mock_cleanup, mock_net,
-                                    _mock_input):
+                                    _mock_input, _mock_detect):
         """On bare metal, answering 'y' proceeds normally."""
         args = argparse.Namespace(arch=None, compose=False)
         rc = prepare.run(args)
         self.assertEqual(rc, 0)
         mock_pkg.assert_called_once()
 
+    @patch("dbuild.prepare.ci_mod.detect", return_value=LocalCI())
     @patch("builtins.input", return_value="n")
     @patch("os.geteuid", return_value=0)
-    def test_bare_metal_confirm_no(self, _euid, _mock_input):
+    def test_bare_metal_confirm_no(self, _euid, _mock_input, _mock_detect):
         """On bare metal, answering 'n' aborts."""
         args = argparse.Namespace(arch=None, compose=False)
         rc = prepare.run(args)
         self.assertEqual(rc, 1)
 
+    @patch("dbuild.prepare.ci_mod.detect", return_value=LocalCI())
     @patch("builtins.input", side_effect=KeyboardInterrupt)
     @patch("os.geteuid", return_value=0)
-    def test_bare_metal_ctrl_c(self, _euid, _mock_input):
+    def test_bare_metal_ctrl_c(self, _euid, _mock_input, _mock_detect):
         """On bare metal, Ctrl-C aborts."""
         args = argparse.Namespace(arch=None, compose=False)
         rc = prepare.run(args)
