@@ -122,6 +122,19 @@ def _make_parser() -> argparse.ArgumentParser:
             "image without pulling from the registry."
         ),
     )
+    build_parser.add_argument(
+        "--cache-dirs",
+        nargs="+",
+        type=str,
+        default=[],
+        help=(
+            "Mount a host directory into containers when executing RUN instructions "
+            "during the build (pased as --volume). "
+            "If the `build.variants.[].cache_dirs` parameter is defined, dbuild will "
+            "use those directories and the ones specified in this parameter as cache "
+            "directories."
+        ),
+    )
 
     # -- test --
     test_parser = sub.add_parser(
