@@ -495,7 +495,7 @@ def generate_appjail_files(
     *,
     image_ref: str | None = None,
 ) -> Path:
-    """Render appjail-director.yml, .env, and Makejail into *dest_dir*.
+    """Render appjail-director.yml, .env, Makejail and template.conf into *dest_dir*.
 
     Per-file override: if ``.daemonless/appjail/<file>`` exists it is copied
     as-is; otherwise the bundled template is rendered.
@@ -527,8 +527,9 @@ def generate_appjail_files(
 
     files = {
         "appjail-director.yml": "appjail-director.yml.j2",
-        ".env":                  "appjail.env.j2",
-        "Makejail":              "Makejail.j2",
+        ".env":                 "appjail.env.j2",
+        "Makejail":             "Makejail.j2",
+        "template.conf":        "appjail-template.conf.j2",
     }
 
     for filename, template_name in files.items():

@@ -73,6 +73,15 @@ services:
     restart: always
 {%- endmacro %}
 
+{%- macro appjail_note_expose_ports() -%}
+{%- if ports %}
+> [!WARNING]
+> Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the jail's IPv4 address or hostname assigned by the virtual network.
+>
+> To avoid exposing ports, just remove the `expose` option in your `appjail-director.yml` or from your command-line arguments.
+{%- endif %}
+{%- endmacro %}
+
 {%- macro appjail_director_snippet(override_port=None) -%}
 {%- if render_mode == "mkdocs" %}
 ``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename=".env" }
@@ -86,6 +95,12 @@ services:
 ``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="Makejail" }
 {% include 'Makejail.j2' %}
 ```
+{%- if jail_allow -%}
+{{ '\n' }}
+``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="template.conf" }
+{% include 'appjail-template.conf.j2' %}
+```
+{%- endif %}
 {%- else -%}
 **.env**:
 
@@ -104,6 +119,14 @@ services:
 ```
 {% include 'Makejail.j2' %}
 ```
+{%- if jail_allow -%}
+{{ '\n' }}
+**template.conf**:
+
+```
+{% include 'appjail-template.conf.j2' %}
+```
+{%- endif %}
 {%- endif %}
 {%- endmacro %}
 
@@ -136,10 +159,15 @@ podman run -d --name {{ name }} \
 {%- endmacro %}
 
 {%- macro appjail_snippet(override_port=None) -%}
-{%- if image_class == "service" -%}
-appjail oci run -Pd \
+{%- if render_mode == "mkdocs" %}
+```bash { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="run.sh" }
 {%- else %}
-appjail oci run \
+```bash
+{%- endif %}
+{%- if image_class == "service" -%}
+{{ '\n' }}appjail oci run -Pd \
+{%- else %}
+{{ '\n' }}appjail oci run \
   -o ephemeral \
 {%- endif %}
   -o overwrite=force \
@@ -151,6 +179,9 @@ appjail oci run \
 {%- else %}
   -o virtualnet=":<random> default" \
   -o nat \
+{%- endif %}
+{%- if jail_allow -%}
+{{ '\n' }}  -o template=template.conf \
 {%- endif %}
 {%- for p in ports %}
 {%- if loop.first %}
@@ -166,6 +197,19 @@ appjail oci run \
   -o fstab="{{ vol_src(v) }} {{ v.path }} <pseudofs>" \{{ " # optional" if v.optional else "" }}
 {%- endfor %}
   {{ reg_var }}/{{ name }}:latest {{ name }}
+```
+{%- if jail_allow -%}
+{{ '\n' }}
+**template.conf**:
+
+{%- if render_mode == "mkdocs" %}
+``` { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="template.conf" }
+{%- else %}
+```
+{%- endif %}
+{% include 'appjail-template.conf.j2' %}
+```
+{%- endif %}
 {%- endmacro %}
 
 {#- Bastille OCI (experimental). Bastille shares the host network stack
@@ -436,10 +480,7 @@ Save as `compose.yaml`, then run `podman-compose up -d`.
 
 Save the files above, then run `appjail-director up`.
 
-{%- if ports %}
-
-**Note**: Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the IPv4 address assigned by the virtual network.
-{%- endif %}
+{{ appjail_note_expose_ports() }}
 {%- endif %}
 {%- endif %}
 
@@ -458,16 +499,11 @@ Save as `run.sh`, then run `sh run.sh`.
 
 ### AppJail
 
-```bash
 {{ appjail_snippet() }}
-```
 
-Save as `run.sh`, then run `sh run.sh`.
+Save the files above, then run `sh run.sh`.
 
-{%- if ports %}
-
-**Note**: Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the IPv4 address assigned by the virtual network.
-{%- endif %}
+{{ appjail_note_expose_ports() }}
 {%- endif %}
 {%- if bastille_enabled %}
 
