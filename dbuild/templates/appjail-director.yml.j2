@@ -13,7 +13,7 @@ services:
   {{ name }}:
     name: {{ name | replace("-", "_") }}
     options:
-      - container: 'boot args:--pull'
+      - container: 'args:--pull'
 {%- for p in ports %}
 {%- if loop.first %}
       - expose: '{{ override_port if override_port else port_var }}:{{ p.target }} proto:{{ p.protocol }}'
@@ -31,6 +31,9 @@ services:
       - {{ opt }}
 {%- endif %}
 {%- endfor %}
+{%- endif %}
+{%- if jail_allow %}
+      - template: !ENV '${PWD}/template.conf'
 {%- endif %}
 
 {%- if env %}
