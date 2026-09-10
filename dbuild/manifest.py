@@ -21,7 +21,7 @@ from dbuild import ci as ci_mod
 from dbuild import log, podman
 from dbuild import registry as registry_mod
 from dbuild.config import Config, Variant, arch_tag_suffix, variant_filter_matches
-from dbuild.push import _version_tag
+from dbuild.push import VERSION_PLACEHOLDER, _version_tag, expand_alias
 
 # ── Architecture tag suffix convention ────────────────────────────────
 # Uses the shared `config.arch_tag_suffix` so the tags created by `push`
@@ -254,12 +254,17 @@ def _create_versioned_manifest(
         return False
 
     version = next(iter(versions.values()))
-    vtag = _version_tag(version, variant.tag)
-    log.step(f"Manifest :{vtag}")
-    ok = _assemble_and_push(cfg, cfg.full_image, vtag, arch_refs)
+    vtags = [_version_tag(version, variant.tag)]
+    for alias in variant.aliases:
+        if VERSION_PLACEHOLDER in alias:
+            vtags.append(expand_alias(alias, version))
 
-    if mirror_url and mirror_refs:
-        _assemble_and_push(cfg, f"{mirror_url}/{cfg.image}", vtag, mirror_refs)
+    ok = True
+    for vtag in vtags:
+        log.step(f"Manifest :{vtag}")
+        ok = _assemble_and_push(cfg, cfg.full_image, vtag, arch_refs) and ok
+        if mirror_url and mirror_refs:
+            _assemble_and_push(cfg, f"{mirror_url}/{cfg.image}", vtag, mirror_refs)
 
     return ok
 
@@ -322,6 +327,9 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
         if variant.tag not in all_tags:
             all_tags.append(variant.tag)
         for alias in variant.aliases:
+            # {version} aliases need the version; handled with the versioned manifest
+            if VERSION_PLACEHOLDER in alias:
+                continue
             if alias not in all_tags:
                 all_tags.append(alias)
 

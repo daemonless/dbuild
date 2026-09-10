@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from dbuild import manifest
-from dbuild.config import Config
+from dbuild.config import Config, Variant
 from dbuild.manifest import _arch_tag
 
 
@@ -138,6 +138,16 @@ class TestCreateManifestForTagMirror(unittest.TestCase):
         self.assertTrue(ok)
         prefixes = [call.args[1] for call in mock_assemble.call_args_list]
         self.assertEqual(prefixes, ["ghcr.io/daemonless/testapp"])
+
+    @patch("dbuild.manifest._assemble_and_push", return_value=True)
+    @patch("dbuild.manifest._remote_image_version", return_value="3.4.4")
+    @patch("dbuild.manifest._image_available", return_value=True)
+    def test_versioned_manifest_expands_placeholder_aliases(self, _avail, _ver, mock_assemble):
+        variant = Variant(tag="3.4-pkg-latest", aliases=["3.4", "{version}", "{version}-lua"])
+        ok = manifest._create_versioned_manifest(self._cfg(), variant, mirror_url=None)
+        self.assertTrue(ok)
+        tags = [call.args[2] for call in mock_assemble.call_args_list]
+        self.assertEqual(tags, ["3.4.4-3.4-pkg-latest", "3.4.4", "3.4.4-lua"])
 
     @patch("dbuild.manifest._assemble_and_push", return_value=True)
     @patch("dbuild.manifest._image_available", return_value=True)

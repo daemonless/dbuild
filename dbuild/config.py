@@ -279,7 +279,8 @@ class Variant:
         "display_default": "{}",
     })
     aliases: list[str] = field(default_factory=list, metadata={
-        "desc": 'Additional tags to push alongside this variant (e.g. `["18-pkg", "pkg", "latest"]`)',
+        "desc": 'Additional tags to push alongside this variant (e.g. `["18-pkg", "pkg", "latest"]`). '
+                '`{version}` expands to the built image version (e.g. `"{version}-lua"`).',
         "display_default": "[]",
     })
     default: bool = field(default=False, metadata={

@@ -24,16 +24,30 @@ from dbuild import log, podman
 from dbuild import registry as registry_mod
 from dbuild.config import Config, Variant, arch_tag_suffix, default_arch, variant_filter_matches
 
+VERSION_PLACEHOLDER = "{version}"
+
+
+def _sanitize_version(version: str) -> str:
+    # OCI tags allow only [A-Za-z0-9_.-]; FreeBSD epoch versions ("8.1.2_1,1")
+    # carry a comma. Faithful version stays in the image.version label.
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", version.lstrip("v"))
+
 
 def _version_tag(version: str, variant_tag: str) -> str:
     """Build a version tag like ``32.0.5`` or ``32.0.5-pkg``."""
-    v = version.lstrip("v")
-    # OCI tags allow only [A-Za-z0-9_.-]; FreeBSD epoch versions ("8.1.2_1,1")
-    # carry a comma. Faithful version stays in the image.version label.
-    v = re.sub(r"[^A-Za-z0-9_.-]", "_", v)
+    v = _sanitize_version(version)
     if variant_tag == "latest":
         return v
     return f"{v}-{variant_tag}"
+
+
+def expand_alias(alias: str, version: str | None) -> str | None:
+    """Resolve ``{version}`` in *alias*; None when it can't be resolved yet."""
+    if VERSION_PLACEHOLDER not in alias:
+        return alias
+    if not version:
+        return None
+    return alias.replace(VERSION_PLACEHOLDER, _sanitize_version(version))
 
 
 def _collect_tags(
@@ -53,7 +67,10 @@ def _collect_tags(
     suffix = arch_tag_suffix(arch, architectures)
     tags = [f"{variant.tag}{suffix}"]
     for alias in variant.aliases:
-        suffixed = f"{alias}{suffix}"
+        expanded = expand_alias(alias, version)
+        if expanded is None:
+            continue
+        suffixed = f"{expanded}{suffix}"
         if suffixed not in tags:
             tags.append(suffixed)
     if version:

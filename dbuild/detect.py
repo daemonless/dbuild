@@ -92,6 +92,8 @@ def _github_extras(
     seen: set[str] = set()
     for v in cfg.variants:
         for t in [v.tag, *v.aliases]:
+            if "{version}" in t:  # resolved at manifest time, not a static tag
+                continue
             if t not in seen:
                 manifest_tags.append(t)
                 seen.add(t)

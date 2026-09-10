@@ -279,6 +279,11 @@ def _collect_screenshots(base: Path) -> list[str]:
     )
 
 
+def _doc_alias(alias: str) -> str:
+    """README form of an alias: ``{version}`` shows as ``<version>``."""
+    return alias.replace("{version}", "<version>")
+
+
 def _normalize_base_version(raw: str, default: str = "15.1") -> str:
     """Turn a BASE_VERSION arg (which may be a pkg tag) into a FreeBSD release:
     '15-pkg' -> '15', '15.1-latest' -> '15.1', '15.1-pkg-latest' -> '15.1',
@@ -362,11 +367,11 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "community_url": community_url,
         "registry": cfg.registry or "ghcr.io/daemonless",
         "repo_url": f"https://github.com/daemonless/{cfg.image}",
-        "tags": [v.tag for v in cfg.variants] + [a for v in cfg.variants for a in (v.aliases or [])],
+        "tags": [v.tag for v in cfg.variants] + [_doc_alias(a) for v in cfg.variants for a in (v.aliases or [])],
         "variants": [
             {
                 "tag": v.tag,
-                "aliases": v.aliases or [],
+                "aliases": [_doc_alias(a) for a in (v.aliases or [])],
                 "default": v.default,
                 "args": v.args or {},
                 "containerfile": v.containerfile or "Containerfile",

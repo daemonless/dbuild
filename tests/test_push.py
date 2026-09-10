@@ -32,6 +32,18 @@ class TestCollectTags(unittest.TestCase):
         tags = _collect_tags(v, "amd64")
         self.assertEqual(tags, ["pkg", "quarterly", "15-quarterly"])
 
+    def test_version_placeholder_alias(self):
+        v = Variant(tag="3.4-pkg-latest", aliases=["3.4", "{version}", "{version}-lua"])
+        tags = _collect_tags(v, "amd64", "v3.4.4_1,1")
+        self.assertEqual(
+            tags,
+            ["3.4-pkg-latest", "3.4", "3.4.4_1_1", "3.4.4_1_1-lua", "3.4.4_1_1-3.4-pkg-latest"],
+        )
+
+    def test_version_placeholder_skipped_without_version(self):
+        v = Variant(tag="pkg", aliases=["{version}", "stable"])
+        self.assertEqual(_collect_tags(v, "amd64"), ["pkg", "stable"])
+
     def test_non_amd64_suffixes_all_tags(self):
         v = Variant(tag="pkg", aliases=["quarterly"])
         tags = _collect_tags(v, "aarch64", "2.0")
