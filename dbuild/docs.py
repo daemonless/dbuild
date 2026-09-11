@@ -567,6 +567,15 @@ def generate_appjail_files(
         if isinstance(d, dict) and d.get("services"):
             director_override = d
 
+    # Every bundle file must end in exactly one newline. AppJail's Makejail
+    # parser is line-based and silently DROPS a final line with no trailing
+    # newline (an unterminated `OPTION from=...` yields a jail that is not an
+    # OCI container, so `appjail oci set-user` fails). Jinja's default
+    # keep_trailing_newline=False strips the template's own final newline, so
+    # normalize on write instead of relying on the shared Environment.
+    def _write_nl(path: Path, text: str) -> None:
+        path.write_text(text.rstrip("\n") + "\n")
+
     for filename, template_name in files.items():
         override = override_dir / filename
         dest = dest_dir / filename
@@ -576,14 +585,14 @@ def generate_appjail_files(
             log.info(f"AppJail: using override {override.relative_to(Path.cwd())}")
             continue
         if director_override is not None and filename == "appjail-director.yml":
-            dest.write_text(_render_director_override(director_override))
+            _write_nl(dest, _render_director_override(director_override))
             continue
         if director_override is not None and filename == ".env":
-            dest.write_text(_render_override_env(director_override, context))
+            _write_nl(dest, _render_override_env(director_override, context))
             continue
         try:
             tmpl = env.get_template(template_name)
-            dest.write_text(tmpl.render(context))
+            _write_nl(dest, tmpl.render(context))
         except jinja2.TemplateNotFound:
             log.warn(f"AppJail: template {template_name} not found, skipping")
 
