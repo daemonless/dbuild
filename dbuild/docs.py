@@ -556,6 +556,17 @@ def generate_appjail_files(
         "template.conf":        "appjail-template.conf.j2",
     }
 
+    # A full director override: an app (typically a multi-service stack) that
+    # authored its complete `appjail.director` in x-daemonless. Emit that
+    # verbatim instead of the single-service derivation, and build a .env
+    # covering every ${VAR} it references.
+    director_override = None
+    aj_meta = cfg.metadata.appjail if isinstance(cfg.metadata.appjail, dict) else None
+    if aj_meta:
+        d = aj_meta.get("director")
+        if isinstance(d, dict) and d.get("services"):
+            director_override = d
+
     for filename, template_name in files.items():
         override = override_dir / filename
         dest = dest_dir / filename
@@ -563,14 +574,51 @@ def generate_appjail_files(
             import shutil as _shutil
             _shutil.copy2(override, dest)
             log.info(f"AppJail: using override {override.relative_to(Path.cwd())}")
-        else:
-            try:
-                tmpl = env.get_template(template_name)
-                dest.write_text(tmpl.render(context))
-            except jinja2.TemplateNotFound:
-                log.warn(f"AppJail: template {template_name} not found, skipping")
+            continue
+        if director_override is not None and filename == "appjail-director.yml":
+            dest.write_text(_render_director_override(director_override))
+            continue
+        if director_override is not None and filename == ".env":
+            dest.write_text(_render_override_env(director_override, context))
+            continue
+        try:
+            tmpl = env.get_template(template_name)
+            dest.write_text(tmpl.render(context))
+        except jinja2.TemplateNotFound:
+            log.warn(f"AppJail: template {template_name} not found, skipping")
 
     return dest_dir
+
+
+def _render_director_override(director: dict) -> str:
+    """Emit an author's complete `appjail.director` block as appjail-director.yml.
+
+    PyYAML writes a bare null value as ``key: null``; AppJail's option/list form
+    wants ``key:`` (bare), so those are normalized back.
+    """
+    import yaml as _yaml
+    body = _yaml.dump(director, sort_keys=False, default_flow_style=False)
+    body = body.replace(": null\n", ":\n")
+    return "# appjail-director.yml\n\n" + body
+
+
+def _render_override_env(director: dict, context: dict) -> str:
+    """Build .env for a director override: DIRECTOR_PROJECT plus every ${VAR}
+    the director references (PWD excluded -- the shell provides it), defaulting
+    from the compose env where known."""
+    import re as _re
+    import yaml as _yaml
+    text = _yaml.dump(director)
+    seen, ordered = set(), []
+    for name in _re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", text):
+        if name != "PWD" and name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    defaults = {e["name"]: e.get("default", "") for e in context.get("env", [])}
+    lines = ["# .env", "", f"DIRECTOR_PROJECT={context.get('name', '')}"]
+    for name in ordered:
+        lines.append(f"{name}={defaults.get(name, '')}")
+    return "\n".join(lines) + "\n"
 
 
 def _readme_generation_mode(cfg: Config, base: Path) -> str:
