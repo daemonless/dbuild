@@ -285,6 +285,25 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- appjail-bundle --
+    appjail_parser = sub.add_parser(
+        "appjail-bundle",
+        help="render the AppJail deploy bundle (director.yml, Makejail, .env, template.conf)",
+        description=(
+            "Render the AppJail files from compose.yaml metadata into a directory -- "
+            "the same bundle daemonless.io publishes. Emits nothing for images without "
+            "appjail enabled (meta.appjail unset)."
+        ),
+    )
+    appjail_parser.add_argument(
+        "--out", default="appjail", metavar="DIR",
+        help="output directory (default: ./appjail)",
+    )
+    appjail_parser.add_argument(
+        "--image-ref", metavar="REF",
+        help="override the Makejail 'from' image ref (e.g. a local build for testing)",
+    )
+
     # -- init --
     init_parser = sub.add_parser(
         "init",
@@ -578,6 +597,19 @@ def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
     return rc if rc else 0
 
 
+def _dispatch_appjail_bundle(cfg: Config, args: argparse.Namespace) -> int:
+    """Render the AppJail deploy bundle into --out (nothing if appjail disabled)."""
+    from pathlib import Path
+    from dbuild import docs
+    if not docs.is_appjail_enabled(cfg):
+        log.info("appjail: not enabled for this image (meta.appjail unset); nothing to emit")
+        return 0
+    out = Path(args.out)
+    docs.generate_appjail_files(cfg, out, image_ref=getattr(args, "image_ref", None))
+    log.info(f"appjail: wrote bundle to {out}/")
+    return 0
+
+
 def _dispatch_docs(cfg: Config, args: argparse.Namespace) -> int:
     """Run the docs subcommand."""
     from dbuild import docs
@@ -608,6 +640,7 @@ _DISPATCHERS: dict[str, callable] = {
     "ci-run": _dispatch_ci_run,
     "generate": _dispatch_docs,
     "docs": _dispatch_docs,
+    "appjail-bundle": _dispatch_appjail_bundle,
 }
 
 # Commands that run without loading project config

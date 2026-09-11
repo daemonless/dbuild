@@ -494,6 +494,20 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     return context
 
 
+def is_appjail_enabled(cfg: Config) -> bool:
+    """Whether this image opts into AppJail deployment.
+
+    meta.appjail is None = disabled, {} = bare/default, {...} = custom; an
+    ``io.daemonless.appjail`` annotation also enables it.
+    """
+    meta = cfg.metadata
+    annotations = cfg.test.annotations if cfg.test else []
+    appjail_meta = meta.appjail if hasattr(meta, "appjail") else None
+    return appjail_meta is not None or any(
+        "io.daemonless.appjail" in a for a in annotations
+    )
+
+
 def generate_appjail_files(
     cfg: Config,
     dest_dir: Path,
@@ -527,6 +541,11 @@ def generate_appjail_files(
         raise RuntimeError("Could not find dbuild templates")
 
     context = _enrich_metadata(cfg)
+    # "deploy" render: parameterize the published port and every volume device
+    # through .env (WEB_PORT, one var per volume), so a consumer (fjord) injects
+    # user values by writing .env alone and never edits director.yml. The docs
+    # ("mkdocs") and hand-edit (default) renders are unaffected.
+    context["render_mode"] = "deploy"
     if image_ref:
         context["image_ref"] = image_ref
 

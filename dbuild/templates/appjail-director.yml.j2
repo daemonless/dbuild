@@ -15,7 +15,9 @@ services:
     options:
       - container: 'args:--pull'
 {%- for p in ports %}
-{%- if loop.first %}
+{%- if render_mode is defined and render_mode == "deploy" and loop.first %}
+      - expose: !ENV '${WEB_PORT}:{{ p.target }} proto:{{ p.protocol }}'
+{%- elif loop.first %}
       - expose: '{{ override_port if override_port else port_var }}:{{ p.target }} proto:{{ p.protocol }}'
 {%- else %}
       - expose: '{{ p.port }}:{{ p.target }} proto:{{ p.protocol }}'
@@ -48,7 +50,7 @@ services:
 {%- if volumes %}
     volumes:
 {%- for v in volumes %}
-      - {{ v.placeholder.replace("@", "") if (render_mode is defined and render_mode == "mkdocs" and v.placeholder) else v.source.replace("/", "_").replace(".", "_").strip("_") }}: {{ v.path }}
+      - {{ v.placeholder.replace("@", "") if (render_mode is defined and render_mode in ("mkdocs", "deploy") and v.placeholder) else v.source.replace("/", "_").replace(".", "_").strip("_") }}: {{ v.path }}
 {%- endfor %}
 {%- endif %}
 
@@ -81,8 +83,12 @@ services:
 volumes:
 {%- if volumes %}
 {%- for v in volumes %}
-  {{ v.placeholder.replace("@", "") if (render_mode is defined and render_mode == "mkdocs" and v.placeholder) else v.source.replace("/", "_").replace(".", "_").strip("_") }}:
+  {{ v.placeholder.replace("@", "") if (render_mode is defined and render_mode in ("mkdocs", "deploy") and v.placeholder) else v.source.replace("/", "_").replace(".", "_").strip("_") }}:
+{%- if render_mode is defined and render_mode == "deploy" %}
+    device: !ENV '${{ '{' }}{{ v.placeholder.replace("@", "") }}{{ '}' }}'
+{%- else %}
     device: '{% if v.root_var %}{{ cfg_root }}/{% endif %}{{ v.placeholder if (render_mode is defined and render_mode == "mkdocs" and v.placeholder) else v.source }}'
+{%- endif %}
 {%- endfor %}
 {%- endif %}
 {%- if appjail and appjail.depends_on %}
