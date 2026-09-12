@@ -600,6 +600,7 @@ def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
 def _dispatch_appjail_bundle(cfg: Config, args: argparse.Namespace) -> int:
     """Render the AppJail deploy bundle into --out (nothing if appjail disabled)."""
     from pathlib import Path
+
     from dbuild import docs
     if not docs.is_appjail_enabled(cfg):
         log.info("appjail: not enabled for this image (meta.appjail unset); nothing to emit")

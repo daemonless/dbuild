@@ -791,7 +791,7 @@ def _test_variant(
     elif force_backend == "podman":
         backend = PodmanBackend()
     else:  # auto
-        backend = AppJailBackend() if (cfg.metadata.appjail and AppJailBackend.available()) else PodmanBackend()
+        backend = AppJailBackend() if (_appjail_cit_applicable(cfg) and AppJailBackend.available()) else PodmanBackend()
 
     # PUID check only works on the podman backend, non-compose (needs env/volume).
     puid_run = puid_enabled and not compose_mode and isinstance(backend, PodmanBackend)
@@ -1226,7 +1226,10 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     # Determine which backends to run
     if backend_arg == "all":
         backends = ["podman"]
-        if cfg.metadata.appjail:
+        if cfg.metadata.appjail and not _appjail_cit_applicable(cfg):
+            log.info("appjail backend skipped: this image declares sidecars (appjail.depends_on); "
+                     "the single-jail CIT can't run its stack")
+        elif cfg.metadata.appjail:
             if AppJailBackend.available():
                 backends.append("appjail")
             else:
@@ -1307,3 +1310,17 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         log.error(f"{passed_count}/{tested} passed")
 
     return worst_rc
+
+
+def _appjail_cit_applicable(cfg) -> bool:
+    """Whether the appjail CIT backend can test this image.
+
+    The appjail backend runs the image alone with `appjail oci run`. An image
+    that declares sidecars (``x-daemonless.appjail.depends_on`` -- a database,
+    redis) can't come up that way, so it is tested on podman only; the
+    director bundle is what runs the whole stack on AppJail.
+    """
+    aj = cfg.metadata.appjail
+    if not aj:
+        return False
+    return not (isinstance(aj, dict) and aj.get("depends_on"))

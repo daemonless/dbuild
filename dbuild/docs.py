@@ -627,6 +627,7 @@ def _render_director_override(director: dict) -> str:
     wants ``key:`` (bare), so those are normalized back.
     """
     import re as _re
+
     import yaml as _yaml
     body = _yaml.dump(director, sort_keys=False, default_flow_style=False)
     body = body.replace(": null\n", ":\n")
@@ -645,6 +646,7 @@ def _render_override_env(director: dict, context: dict) -> str:
     the director references (PWD excluded -- the shell provides it), defaulting
     from the compose env where known."""
     import re as _re
+
     import yaml as _yaml
     text = _yaml.dump(director)
     seen, ordered = set(), []

@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-09-04" "dbuild 1.9.14" "User Commands"
+.TH DBUILD 1 "2026-09-12" "dbuild 1.9.16" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -7,6 +7,20 @@ dbuild \- FreeBSD OCI container image build tool
 .SH DESCRIPTION
 dbuild provides a streamlined interface for creating and managing OCI-compliant containers that run natively in FreeBSD Jails. It eliminates the friction of configuring ocijail, networking, and jail templates by using a 'Registry-First' approach. Configuration is automatically derived from Git remotes and standard Compose files, allowing for reproducible builds across local and CI environments.
 .SH COMMANDS
+.TP
+\fBappjail-bundle\fR
+Render the AppJail files from compose.yaml metadata into a directory -- the same bundle daemonless.io publishes. Emits nothing for images without appjail enabled (meta.appjail unset).
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--out\fR
+output directory (default: ./appjail)
+.TP
+\fB--image-ref\fR
+override the Makejail 'from' image ref (e.g. a local build for testing)
+.RE
 .TP
 \fBbaseline\fR
 Start a container, wait for it to be ready, and capture a baseline screenshot.

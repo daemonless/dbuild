@@ -107,9 +107,10 @@ def _build_variant(
     prefix: str | None = None,
     no_cache: bool = False,
     promote_local: bool = False,
-    cache_dirs: list[str] = []
+    cache_dirs: list[str] | None = None
 ) -> str:
     """Build one variant for one architecture.  Returns the build tag."""
+    cache_dirs = cache_dirs or []
     extra_args = []
     freebsd_arch = _map_arch(arch)
     build_tag = (
