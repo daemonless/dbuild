@@ -548,6 +548,14 @@ def generate_appjail_files(
     context["render_mode"] = "deploy"
     if image_ref:
         context["image_ref"] = image_ref
+    # Host networking is declared through the director options (ip4_inherit);
+    # the jail template must carry the actual ip4/ip6 parameters because the
+    # option itself is a no-op in AppJail 5.5.0.
+    aj_opts = (cfg.metadata.appjail or {}).get("director", {}).get("options", []) if isinstance(cfg.metadata.appjail, dict) else []
+    context["host_network"] = any(
+        (isinstance(o, dict) and "ip4_inherit" in o) or (isinstance(o, str) and o.startswith("ip4_inherit"))
+        for o in aj_opts
+    )
 
     files = {
         "appjail-director.yml": "appjail-director.yml.j2",
@@ -596,6 +604,19 @@ def generate_appjail_files(
         except jinja2.TemplateNotFound:
             log.warn(f"AppJail: template {template_name} not found, skipping")
 
+    # A sidecar's own jail template (appjail.depends_on[].template, e.g. the
+    # PostgreSQL sysvipc one) ships in the repo; it is part of the bundle, so
+    # the consumer can drop the whole directory next to director.yml.
+    for dep in (aj_meta or {}).get("depends_on", []) or []:
+        tpl = dep.get("template") if isinstance(dep, dict) else None
+        if not tpl:
+            continue
+        src = Path.cwd() / tpl
+        if src.is_file():
+            _write_nl(dest_dir / tpl, src.read_text())
+        else:
+            log.warn(f"AppJail: {dep.get('name')} references {tpl}, which is not in the repo")
+
     return dest_dir
 
 
@@ -605,9 +626,17 @@ def _render_director_override(director: dict) -> str:
     PyYAML writes a bare null value as ``key: null``; AppJail's option/list form
     wants ``key:`` (bare), so those are normalized back.
     """
+    import re as _re
     import yaml as _yaml
     body = _yaml.dump(director, sort_keys=False, default_flow_style=False)
     body = body.replace(": null\n", ":\n")
+    # Authors write "!ENV '${VAR}'" as a string (YAML can't carry a tag inside
+    # a plain mapping value the way the template does). PyYAML then emits it
+    # quoted -- '!ENV ''${VAR}''' -- which director reads as literal text, not
+    # a tag, and the jail gets the string "!ENV '${VAR}'" as its value.
+    # Unquote so it is the tag pyaml-env resolves.
+    body = _re.sub(r"""'!ENV ''(\$\{[^}]+\}[^']*)'''""", r"!ENV '\1'", body)
+    body = _re.sub(r'''"!ENV '(\$\{[^}]+\}[^']*)'"''', r"!ENV '\1'", body)
     return "# appjail-director.yml\n\n" + body
 
 

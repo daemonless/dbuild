@@ -3,7 +3,13 @@
 options:
 {%- if appjail and appjail.director and appjail.director.options %}
 {%- for opt in appjail.director.options %}
+{%- if opt is mapping %}
+{%- for k, v in opt.items() %}
+  - {{ k }}:{% if v is not none %} {{ v }}{% endif %}
+{%- endfor %}
+{%- else %}
   - {{ opt }}
+{%- endif %}
 {%- endfor %}
 {%- else %}
   - virtualnet: ':<random> default'
@@ -60,14 +66,18 @@ services:
     name: {{ dep.name | replace("-", "_") }}
     options:
       - from: {{ dep.image }}
-{%- if dep.template %}
-      - template: !ENV '${PWD}/{{ dep.template }}'
-{%- endif %}
+{#- A sidecar needs a jail template too (host networking, jail params); its
+    own when declared, else the stack's template.conf. #}
+      - template: !ENV '${PWD}/{{ dep.template if dep.template else "template.conf" }}'
 {%- if dep.env %}
     oci:
       environment:
 {%- for k, v in dep.env.items() %}
+{%- if v is string and v.startswith("!ENV") %}
+        - {{ k }}: {{ v }}
+{%- else %}
         - {{ k }}: "{{ v }}"
+{%- endif %}
 {%- endfor %}
 {%- endif %}
 {%- if dep.volumes %}
@@ -96,7 +106,7 @@ volumes:
 {%- if dep.volumes %}
 {%- for vol_id, vol_path in dep.volumes.items() %}
   {{ vol_id }}:
-    device: "!ENV '${ {{ vol_id.upper() }} _LOCATION}'"
+    device: !ENV '${{ '{' }}{{ vol_id.upper() }}_LOCATION{{ '}' }}'
 {%- endfor %}
 {%- endif %}
 {%- endfor %}

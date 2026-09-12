@@ -4,6 +4,13 @@ exec.start: "/bin/sh /etc/rc"
 exec.stop: "/bin/sh /etc/rc.shutdown jail"
 mount.devfs
 persist
+{%- if host_network %}
+{#- The director/quick `ip4_inherit` option never reaches the jail template in
+    AppJail 5.5.0 (the jail comes up ip4=disable and every bind fails); the
+    jail parameters themselves do. #}
+ip4: inherit
+ip6: inherit
+{%- endif %}
 {%- for opt in jail_allow %}
 {{ opt }}
 {%- endfor %}
