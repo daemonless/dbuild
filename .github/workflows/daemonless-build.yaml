@@ -264,6 +264,27 @@ jobs:
             # Copy any temp screenshots to results
             cp /tmp/cit-screenshot*.png cit-results/ 2>/dev/null || true
 
+            # Post-mortem: dbuild removes the CIT container on cleanup and only
+            # prints its last 10 lines, which a crash loop fills with s6 restart
+            # notices -- so the failure itself never reaches the log. Re-run the
+            # image the way CIT does and copy the full output back.
+            if [ $cit_exit -ne 0 ]; then
+              PM="postmortem-${{ matrix.tag }}"
+              podman rm -f "$PM" >/dev/null 2>&1 || true
+              podman run -d --name "$PM" -e PUID=1000 -e PGID=1000 \
+                "${DBUILD_REGISTRY}/${{ inputs.image_name }}:build-${VARIANT}" \
+                >/dev/null 2>&1 || true
+              sleep 45
+              {
+                echo "### podman logs (full)"
+                podman logs "$PM" 2>&1
+                echo "### inspect"
+                podman inspect "$PM" --format 'exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}' 2>&1
+                echo "### df"; df -h /
+              } > "cit-results/${PM}.log" 2>&1
+              podman rm -f "$PM" >/dev/null 2>&1 || true
+            fi
+
             # Save exit code (don't exit here - let copyback happen first)
             echo "$cit_exit" > cit-results/cit-exit-code
 
