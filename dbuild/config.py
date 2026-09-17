@@ -278,6 +278,12 @@ class Variant:
         "desc": "Build arguments passed as `--build-arg` to the Containerfile",
         "display_default": "{}",
     })
+    arch_args: dict[str, dict[str, str]] = field(default_factory=dict, metadata={
+        "desc": "Per-arch `--build-arg` overrides keyed by architecture "
+                '(e.g. `{aarch64: {BASE_VERSION: "15.1-latest"}}`). Wins over `args`; '
+                "use when one arch needs a different base (a pkg branch missing a dep).",
+        "display_default": "{}",
+    })
     aliases: list[str] = field(default_factory=list, metadata={
         "desc": 'Additional tags to push alongside this variant (e.g. `["18-pkg", "pkg", "latest"]`). '
                 '`{version}` expands to the built image version (e.g. `"{version}-lua"`).',
@@ -554,6 +560,7 @@ def _global_extra_variants(base: Path, global_data: dict[str, Any]) -> list[Vari
                 tag=str(v["tag"]),
                 containerfile=cf,
                 args=v.get("args", {}),
+                arch_args=v.get("arch_args", {}),
                 aliases=v.get("aliases", []),
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),
@@ -844,6 +851,7 @@ def _parse_variants(data: dict[str, Any]) -> list[Variant]:
                 tag=str(v["tag"]),
                 containerfile=v.get("containerfile", "Containerfile"),
                 args=v.get("args", {}),
+                arch_args=v.get("arch_args", {}),
                 aliases=v.get("aliases", []),
                 default=v.get("default", False),
                 pkg_name=v.get("pkg_name"),

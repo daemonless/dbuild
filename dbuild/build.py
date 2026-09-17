@@ -128,6 +128,17 @@ def _build_variant(
     build_args: dict[str, str] = {
         "FREEBSD_ARCH": freebsd_arch,
     }
+    # Per-arch overrides first: setdefault means first writer wins, so these
+    # beat the shared args below (e.g. arm on a pkg branch amd64 doesn't need).
+    for arch_key, overrides in variant.arch_args.items():
+        try:
+            if _map_arch(arch_key) != freebsd_arch:
+                continue
+        except ValueError:
+            log.warn(f"arch_args: unknown architecture '{arch_key}' (ignored)")
+            continue
+        for key, val in overrides.items():
+            build_args.setdefault(key, val)
     # Merge variant-specific build args (incl. BASE_VERSION).
     for key, val in variant.args.items():
         build_args.setdefault(key, val)
