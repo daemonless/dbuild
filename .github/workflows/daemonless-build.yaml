@@ -65,7 +65,7 @@ jobs:
       build_tools_ref: ${{ steps.resolve-build-tools.outputs.ref }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Resolve build-tools ref
         id: resolve-build-tools
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install dependencies
         run: pip install PyYAML
@@ -139,7 +139,7 @@ jobs:
 
     steps:
       - name: Free disk space
-        uses: endersonmenezes/free-disk-space@v3
+        uses: endersonmenezes/free-disk-space@v4
         with:
           remove_tool_cache: true
           remove_android: true
@@ -151,7 +151,7 @@ jobs:
           rm_cmd: rmz
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Generate Containerfile/README from templates
         if: inputs.generate
@@ -173,7 +173,7 @@ jobs:
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
       - name: Build in FreeBSD VM (${{ matrix.tag }}${{ matrix.arch_suffix }})
-        uses: vmactions/freebsd-vm@v1.5.2
+        uses: vmactions/freebsd-vm@v1.5.7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -395,7 +395,7 @@ jobs:
           mv /tmp/dbuild-* /tmp/dbuild
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: dbuild manifest
         env:
@@ -414,7 +414,7 @@ jobs:
 
     steps:
       - name: Free disk space
-        uses: endersonmenezes/free-disk-space@v3
+        uses: endersonmenezes/free-disk-space@v4
         with:
           remove_tool_cache: true
           remove_android: true
@@ -426,13 +426,13 @@ jobs:
           rm_cmd: rmz
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
       - name: Test in FreeBSD VM
-        uses: vmactions/freebsd-vm@v1.5.2
+        uses: vmactions/freebsd-vm@v1.5.7
         with:
           release: "15.1"
           vnc-password: ${{ secrets.VNC_PASSWORD }}
@@ -510,7 +510,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download all SBOM artifacts
         uses: actions/download-artifact@v8
@@ -664,7 +664,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Announce new container
         env:
