@@ -3,6 +3,11 @@
 {%- set _reg = reg_var if reg_var is defined else registry -%}
 ARG tag={{ image_tag | default(default_tag) }}
 
-OPTION container=boot
+{# --pull is what makes `appjail-director update` mean anything: without it
+     buildah reuses whatever copy of the image is already in the store, so a
+     down --destroy + up rebuilds the jail from the same bytes, the digest
+     never moves, and fjord's update badge stays lit forever. Skipped in test
+     mode, where `from` points at an image built locally that no registry has. -#}
+OPTION container=boot{% if image_ref is not defined %} args:--pull{% endif %}
 OPTION overwrite=force
 OPTION from={{ image_ref | default(_reg + "/" + name + ":${tag}") }}
