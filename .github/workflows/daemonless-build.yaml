@@ -101,9 +101,9 @@ jobs:
           fi
           python3 -m dbuild ${ARCH_FILTER:+--arch "$ARCH_FILTER"} detect --format github ${{ inputs.variant && format('--variant {0}', inputs.variant) || '' }}
 
-  # Lint check on PRs — fails the check if dbuild lint detects any errors.
+  # Fails the check if dbuild lint reports errors. build doesn't need it:
+  # a metadata error shows red but never holds back a rebuild.
   lint:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -114,16 +114,23 @@ jobs:
 
       - name: dbuild lint
         run: |
-          curl -sSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          set -o pipefail
+          curl -fsSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
           DBUILD_DIR=$(ls -d /tmp/dbuild-* | head -1)
           export PYTHONPATH="$DBUILD_DIR"
+          # rc captured on its own: piping the { ...; echo } block through tee
+          # reported the last echo's status, so lint errors never failed the job.
+          rc=0
+          python3 -m dbuild lint > /tmp/lint.txt 2>&1 || rc=$?
+          cat /tmp/lint.txt
           {
             echo '## dbuild lint'
             echo ''
             echo '```'
-            python3 -m dbuild lint 2>&1
+            cat /tmp/lint.txt
             echo '```'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
   build:
     needs: detect
