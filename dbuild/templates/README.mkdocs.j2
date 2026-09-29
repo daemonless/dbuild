@@ -83,7 +83,35 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {% block deployment_tabs %}
 {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
 {%- set bastille_tab = bastille_enabled and image_class == "service" %}
-{%- if appjail_enabled or bastille_tab %}
+{%- if compose_text %}
+{#- An app shipped with its database: the real compose and the .env it reads.
+    The one-service snippet dropped the database; the one-container recipes
+    (CLI, Ansible, Bastille) would start the app without it. #}
+=== ":material-docker: Podman"
+{% if example_env %}
+    **1.** Save as `.env` and fill in what is empty:
+
+    ```env { data-zip-bundle="{{ name }}-podman" data-zip-filename=".env" }
+    {{ example_env | trim | indent(4) }}
+    ```
+
+    **2.** Save as `compose.yaml`:
+{% endif %}
+    ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
+    {{ compose_text | trim | indent(4) }}
+    ```
+
+    Then run `podman-compose up -d`.
+{% if appjail_enabled and appjail_sidecar %}
+=== ":appjail-appjail: AppJail"
+
+    === ":material-file-document-outline: Director"
+
+        {{ appjail_director_snippet(port_var) | indent(8) }}
+
+        Save the files above, then run `appjail-director up`.
+{% endif %}
+{%- elif appjail_enabled or bastille_tab %}
 {#- More than one runtime: nest formats under a per-runtime outer tab. #}
 === ":material-docker: Podman"
 
@@ -189,7 +217,9 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {% endblock %}
 
 {% block interactive_config %}
-{%- if image_class == "service" %}
+{#- The settings panel fills in the one-service snippet; an app shipped with
+    its database shows its real compose instead, which it cannot edit. #}
+{%- if image_class == "service" and not compose_text %}
 
 ### Interactive Configuration
 

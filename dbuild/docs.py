@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -336,7 +337,6 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     base_version = "15.1"  # fallback default
     cf_path = Path.cwd() / "Containerfile.j2"
     if cf_path.exists():
-        import re
         match = re.search(r"ARG BASE_VERSION=(.*)", cf_path.read_text())
         if match:
             base_version = _normalize_base_version(match.group(1))
@@ -393,6 +393,11 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "screenshots": _collect_screenshots(Path.cwd()),
         "cit_mode": cfg.test.mode if cfg.test else "none",
         "image_class": meta.image_class,
+        "compose_text": cfg.compose_text,
+        "example_env": cfg.example_env,
+        # The AppJail bundle carries the sidecar (x-daemonless.appjail.depends_on),
+        # so its Director section runs the whole app, not the app alone.
+        "appjail_sidecar": bool((getattr(meta, "appjail", None) or {}).get("depends_on")),
         "env": [],
         "volumes": [],
         "ports": [],
@@ -410,10 +415,25 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             else:
                 cfg.env.append({"name": k, "default": ""})
 
+    # An app shipped with its database reads its values from .env: show what
+    # example.env gives, or the compose's own ${VAR:-fallback}, instead of the
+    # raw reference (a Default column reading "${DB_PASSWORD}").
+    env_file: dict[str, str] = {}
+    for line in cfg.example_env.splitlines():
+        k, sep, v = line.partition("=")
+        if sep and k.strip() and not k.lstrip().startswith("#"):
+            env_file[k.strip()] = v.strip()
+
     for e in cfg.env:
         name = e["name"]
         val = e["default"]
 
+        if cfg.compose_text:
+            ref = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}", str(val or ""))
+            if ref:
+                val = env_file.get(ref.group(1), ref.group(2) or "")
+            elif not val:
+                val = env_file.get(name, "")
         display_val = val if val and val not in ['""', "''"] else ""
         if not display_val and any(x in name.upper() for x in ["PASS", "KEY", "SECRET", "TOKEN"]):
             display_val = f"<{name.upper()}>"
