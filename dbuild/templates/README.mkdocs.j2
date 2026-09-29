@@ -92,13 +92,13 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     **1.** Save as `.env` and fill in what is empty:
 
     ```env { data-zip-bundle="{{ name }}-podman" data-zip-filename=".env" }
-    {{ example_env | trim | indent(4) }}
+    {{ example_env_site | trim | indent(4) }}
     ```
 
     **2.** Save as `compose.yaml`:
 {% endif %}
     ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
-    {{ compose_text | trim | indent(4) }}
+    {{ compose_text_site | trim | indent(4) }}
     ```
 
     Then run `podman-compose up -d`.
@@ -217,9 +217,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {% endblock %}
 
 {% block interactive_config %}
-{#- The settings panel fills in the one-service snippet; an app shipped with
-    its database shows its real compose instead, which it cannot edit. #}
-{%- if image_class == "service" and not compose_text %}
+{%- if image_class == "service" %}
 
 ### Interactive Configuration
 

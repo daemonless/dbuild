@@ -297,6 +297,23 @@ def _normalize_base_version(raw: str, default: str = "15.1") -> str:
     return v if v and v != "latest" else default
 
 
+def _site_placeholders(text: str, env_file: bool = False) -> str:
+    """Put the docs site's placeholders into a repo's own compose or .env.
+
+    /containers -> @CONTAINER_CONFIG_ROOT@, PUID/PGID=1000 -> @PUID@/@PGID@,
+    and in a .env the TZ line -> TZ=@TZ@, so the settings panel fills them
+    in as it does on a one-service page.
+    """
+    if not text:
+        return ""
+    text = re.sub(r"/containers(?=/)", CONFIG_ROOT_VAR, text)
+    text = re.sub(r"(?m)(\bPUID=)1000\b", r"\g<1>@PUID@", text)
+    text = re.sub(r"(?m)(\bPGID=)1000\b", r"\g<1>@PGID@", text)
+    if env_file:
+        text = re.sub(r"(?m)^#?\s*TZ=\S*$", "TZ=@TZ@", text)
+    return text
+
+
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
     """Build a context dict for templates with enriched env/vol/port data from Config."""
     meta = cfg.metadata
@@ -395,6 +412,10 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "image_class": meta.image_class,
         "compose_text": cfg.compose_text,
         "example_env": cfg.example_env,
+        # The same, with the placeholders the site's settings panel fills in --
+        # what a one-service page gets from its generated snippet.
+        "compose_text_site": _site_placeholders(cfg.compose_text),
+        "example_env_site": _site_placeholders(cfg.example_env, env_file=True),
         # The AppJail bundle carries the sidecar (x-daemonless.appjail.depends_on),
         # so its Director section runs the whole app, not the app alone.
         "appjail_sidecar": bool((getattr(meta, "appjail", None) or {}).get("depends_on")),
