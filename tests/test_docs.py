@@ -292,3 +292,16 @@ class TestNormalizeBaseVersion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSitePlaceholders:
+    def test_repo_compose_and_env_get_site_placeholders(self):
+        from dbuild.docs import _site_placeholders
+        compose = "      - PUID=1000\n      - PGID=1000\n    volumes:\n      - /containers/app/config:/config\n"
+        assert _site_placeholders(compose) == (
+            "      - PUID=@PUID@\n      - PGID=@PGID@\n    volumes:\n"
+            "      - @CONTAINER_CONFIG_ROOT@/app/config:/config\n")
+        env = "CONFIG_LOCATION=/containers/app\n# TZ=UTC\n"
+        assert _site_placeholders(env, env_file=True) == (
+            "CONFIG_LOCATION=@CONTAINER_CONFIG_ROOT@/app\nTZ=@TZ@\n")
+        assert _site_placeholders("") == ""
