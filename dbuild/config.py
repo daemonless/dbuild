@@ -413,6 +413,14 @@ class Config:
     volumes: list[dict[str, Any]] = field(default_factory=list)
     ports: list[dict[str, Any]] = field(default_factory=list)
 
+    # A compose with more than one service (an app and its database) is shown
+    # in the docs as the file itself, with example.env as the .env to save: the
+    # generated one-service snippet dropped the sidecar (librenms' MariaDB,
+    # paperless-ngx's redis) and listed .env-only variables as the app's
+    # environment. Empty for a single service, where the snippet is right.
+    compose_text: str = ""
+    example_env: str = ""
+
     @property
     def full_image(self) -> str:
         """Return the fully-qualified image reference (registry/image)."""
@@ -946,6 +954,15 @@ def load(base: Path | None = None) -> Config:
     # Service data (Env, Volumes, Ports)
     env, volumes, ports = _parse_service_data(local_data, compose_data)
 
+    compose_text = ""
+    example_env = ""
+    services = compose_data.get("services")
+    if isinstance(services, dict) and len(services) > 1:
+        compose_text = _without_top_level_key(compose_path.read_text(), "x-daemonless")
+        example_env_path = base / "example.env"
+        if example_env_path.is_file():
+            example_env = example_env_path.read_text()
+
     return Config(
         image=image_name,
         registry=registry,
@@ -957,4 +974,27 @@ def load(base: Path | None = None) -> Config:
         env=env,
         volumes=volumes,
         ports=ports,
+        compose_text=compose_text,
+        example_env=example_env,
     )
+
+
+def _without_top_level_key(text: str, key: str) -> str:
+    """Return compose text without one top-level key and its block.
+
+    Line-based, so the rest keeps its comments and layout -- a YAML round trip
+    would drop them, and they are the explanation a reader needs. The block
+    ends at the next line that starts in column 0 and is not a comment.
+    """
+    out: list[str] = []
+    skipping = False
+    for line in text.splitlines():
+        if line.startswith(f"{key}:"):
+            skipping = True
+            continue
+        if skipping and line and not line[0].isspace() and not line.startswith("#"):
+            skipping = False
+        if not skipping:
+            out.append(line)
+    return "\n".join(out).strip() + "\n"
+

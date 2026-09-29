@@ -188,6 +188,63 @@ class TestReadmeCliDeployment(unittest.TestCase):
             self.assertIn("ghcr.io/daemonless/", readme)
 
 
+class TestReadmeWithSidecar(unittest.TestCase):
+    """An app shipped with its database is documented as its real compose.
+
+    The one-service snippet dropped the sidecar (librenms' MariaDB,
+    paperless-ngx's redis) and listed .env-only variables as the app's
+    environment; the one-container recipes started the app without it.
+    """
+
+    COMPOSE = (
+        "name: app\n"
+        "x-daemonless:\n"
+        '  title: "App"\n'
+        '  description: "An app and its database."\n'
+        '  category: "Monitoring"\n'
+        "  docs:\n"
+        "    env:\n"
+        '      CONFIG_LOCATION: "Host folder for app data"\n'
+        "services:\n"
+        "  app:\n"
+        "    image: ghcr.io/daemonless/app:latest\n"
+        "    environment:\n"
+        "      # found over localhost on host networking\n"
+        "      - DB_HOST=127.0.0.1\n"
+        "      - DB_PASSWORD=${DB_PASSWORD}\n"
+        "    volumes:\n"
+        "      - ${CONFIG_LOCATION}:/config\n"
+        "  app-mariadb:\n"
+        "    image: ghcr.io/daemonless/mariadb:latest\n"
+        "    environment:\n"
+        "      - MYSQL_PASSWORD=${DB_PASSWORD}\n"
+    )
+
+    def test_real_compose_and_env_shown(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / "compose.yaml").write_text(self.COMPOSE)
+            (repo / "example.env").write_text("CONFIG_LOCATION=/containers/app\nDB_PASSWORD=\n")
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                self.assertEqual(docs.run(cfg, argparse.Namespace(community=None)), 0)
+            readme = (repo / "README.md").read_text()
+            compose = readme.split("### Podman Compose", 1)[1]
+            self.assertIn("app-mariadb:", compose)  # the sidecar is there
+            self.assertIn("# found over localhost on host networking", compose)  # comments kept
+            self.assertIn("DB_PASSWORD=\n", compose)  # example.env as the .env
+            self.assertNotIn("x-daemonless", compose)
+            self.assertNotIn("CONFIG_LOCATION=  #", compose)  # no .env-only var as app env
+            for section in ("### Podman CLI", "### Bastille", "### Ansible", "### AppJail Director"):
+                self.assertNotIn(section, readme)
+
+    def test_single_service_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = _make_repo(Path(d))
+            self.assertEqual(dbuild_config.load(repo).compose_text, "")
+
+
 @contextlib.contextmanager
 def _set_env(key: str, value: str):
     prev = os.environ.get(key)
