@@ -53,7 +53,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-import yaml
+# Lazy: the wheel build imports the package without yaml installed.
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None  # type: ignore[assignment]
 
 # The database engines dbuild knows how to run. One place: an app that
 # offers postgres gets this service, and a fix here fixes every app.

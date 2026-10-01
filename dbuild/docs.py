@@ -19,8 +19,6 @@ except ImportError:
 
 import dataclasses
 
-import yaml
-
 import dbuild
 from dbuild import choices as choices_mod
 from dbuild import log
@@ -379,6 +377,8 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> list[dict
             # compose with their images, the jails under director, and the
             # host folders the data lands in. The page says this before any
             # YAML.
+            import yaml  # lazy, as everywhere in this module: the wheel build imports it without yaml
+
             parsed = (yaml.safe_load(ct) or {}).get("services") or {}
             engine_services = {ENGINE["service"] for ENGINE in choices_mod.ENGINES.values() if ENGINE.get("service")}
             parts, jails = [], []
