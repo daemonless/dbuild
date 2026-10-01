@@ -1,12 +1,13 @@
 {% extends "README.j2" %}
 
-{#- What an option runs, before any YAML: one chip per container or jail,
-    then the count and the host folders. Markdown, not a raw HTML block: a
-    block inside a tab gets paragraph-wrapped and magiclink turns a
-    placeholder's @ into a GitHub mention; a code span keeps it as text. #}
+{#- What an option runs, before any YAML: the images, then the host folders
+    the data lands in. Plain words; markdown, not a raw HTML block (a block
+    inside a tab gets paragraph-wrapped and magiclink turns a placeholder's
+    @ into a GitHub mention; a code span keeps it as text). #}
 {%- macro you_get(o, parts, unit) -%}
-{%- set running = parts | rejectattr("kind", "equalto", "none") | list -%}
-**You get**{% for p in parts %} <span class="part part-{{ p.kind }}"><i></i>{{ p.name }} <code>{{ p.image }}</code></span>{% endfor %} <span class="sum">{{ running | length }} {{ unit }}{{ "" if running | length == 1 else "s" }}{% if o.folders %}, data in {% for f in o.folders %}`{{ f }}`{{ ", " if not loop.last }}{% endfor %}{% endif %}</span>
+{%- set imgs = [] -%}
+{%- for p in parts %}{% if p.kind == "none" %}{% set _ = imgs.append("your own " ~ p.name | replace("your database", "database")) %}{% else %}{% set _ = imgs.append("`" ~ p.image ~ "`") %}{% endif %}{% endfor -%}
+{{ imgs | join(" · ") }}{% if o.folders %} — data in {% for f in o.folders %}`{{ f }}`{{ ", " if not loop.last }}{% endfor %}{% endif %}
 {: .you-get }
 {%- endmacro %}
 
