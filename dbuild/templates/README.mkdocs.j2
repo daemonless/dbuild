@@ -1,5 +1,15 @@
 {% extends "README.j2" %}
 
+{#- What an option runs, before any YAML: one chip per container or jail,
+    then the count and the host folders. Markdown, not a raw HTML block: a
+    block inside a tab gets paragraph-wrapped and magiclink turns a
+    placeholder's @ into a GitHub mention; a code span keeps it as text. #}
+{%- macro you_get(o, parts, unit) -%}
+{%- set running = parts | rejectattr("kind", "equalto", "none") | list -%}
+**You get**{% for p in parts %} <span class="part part-{{ p.kind }}"><i></i>{{ p.name }} <code>{{ p.image }}</code></span>{% endfor %} <span class="sum">{{ running | length }} {{ unit }}{{ "" if running | length == 1 else "s" }}{% if o.folders %}, data in {% for f in o.folders %}`{{ f }}`{{ ", " if not loop.last }}{% endfor %}{% endif %}</span>
+{: .you-get }
+{%- endmacro %}
+
 {% block frontmatter -%}
 ---
 title: "Run {{ title }} on FreeBSD — Native OCI Container"
@@ -86,9 +96,36 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- if compose_text %}
 {#- An app shipped with its database: the real compose and the .env it reads.
     The one-service snippet dropped the database; the one-container recipes
-    (CLI, Ansible, Bastille) would start the app without it. #}
-=== ":material-docker: Podman"
-{% if example_env %}
+    (Bastille) would start the app without it. #}
+=== ":podman-podman: Podman"
+{% if choices %}
+{% for c in choices %}
+    **{{ c.label }}** {{ c.doc }}
+    {: .deploy-choice }
+{% for o in c.options %}
+    === "{{ o.label }}"
+
+        {{ you_get(o, o.parts, "container") | indent(8) }}
+
+{% if o.doc %}
+        {{ o.doc }}
+{% endif %}
+        **1.** Save as `.env`{% if o.ask %} and fill in {{ o.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
+
+        ```env { data-zip-bundle="{{ o.zip }}" data-zip-filename=".env" }
+        {{ o.example_env_site | trim | indent(8) }}
+        ```
+
+        **2.** Save as `compose.yaml`:
+
+        ```yaml { data-zip-bundle="{{ o.zip }}" data-zip-filename="compose.yaml" }
+        {{ o.compose_text_site | trim | indent(8) }}
+        ```
+
+        Then run `podman-compose up -d`.
+{% endfor %}
+{% endfor %}
+{% elif example_env %}
     **1.** Save as `.env` and fill in what is empty:
 
     ```env { data-zip-bundle="{{ name }}-podman" data-zip-filename=".env" }
@@ -97,12 +134,32 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
     **2.** Save as `compose.yaml`:
 {% endif %}
+{% if not choices %}
     ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
     {{ compose_text_site | trim | indent(4) }}
     ```
 
     Then run `podman-compose up -d`.
-{% if appjail_enabled and appjail_sidecar %}
+{% endif %}
+{% if appjail_enabled and choices %}
+=== ":appjail-appjail: AppJail"
+{% for c in choices %}
+    **{{ c.label }}** {{ c.doc }}
+    {: .deploy-choice }
+{% for o in c.options %}
+    === "{{ o.label }}"
+
+        {{ you_get(o, o.jails, "jail") | indent(8) }}
+
+{% if o.doc %}
+        {{ o.doc }}
+{% endif %}
+        {{ appjail_director_snippet(port_var, o) | indent(8) }}
+
+        Save the files above, then run `appjail-director up`.
+{% endfor %}
+{% endfor %}
+{% elif appjail_enabled and appjail_sidecar %}
 === ":appjail-appjail: AppJail"
 
     === ":material-file-document-outline: Director"
@@ -112,117 +169,76 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
         Save the files above, then run `appjail-director up`.
 {% endif %}
 {%- elif appjail_enabled or bastille_tab %}
-{#- More than one runtime: nest formats under a per-runtime outer tab. #}
-=== ":material-docker: Podman"
-
+{#- One tab per runtime, one way each. #}
+=== ":podman-podman: Podman"
 {% if image_class == "service" %}
-    === ":material-file-document-outline: Compose"
+    ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
+    {{ compose_snippet(port_var) | indent(4) }}
+    ```
 
-        ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
-        {{ compose_snippet(port_var) | indent(8) }}
-        ```
+    Save as `compose.yaml`, then run `podman-compose up -d`.
+{% elif docs is mapping and docs.usage %}
+    {{ docs.usage | trim | indent(4) }}
+{% else %}
+    ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
+    {{ cli_snippet(port_var) | indent(4) }}
+    ```
 
-        Save as `compose.yaml`, then run `podman-compose up -d`.
-
+    Save as `run.sh`, then run `sh run.sh`.
 {% endif %}
-    === ":material-console: CLI"
-
-        ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
-        {{ cli_snippet(port_var) | indent(8) }}
-        ```
-
-        Save as `run.sh`, then run `sh run.sh`.
-{% if image_class == "service" %}
-
-    === ":simple-ansible: Ansible"
-
-        ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
-        {{ ansible_snippet(port_var) | indent(8) }}
-        ```
-
-        Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
-{% endif %}
-
-{% if appjail_enabled %}
+{% if appjail_enabled and image_class == "service" %}
 === ":appjail-appjail: AppJail"
 {% if ports %}
     !!! warning
         Exposing ports in AppJail means that your service can be reached from remote hosts. If that is not your intention, do not expose the ports and communicate with the service using the jail's IPv4 address or hostname assigned by the virtual network.
 {% endif %}
+    {{ appjail_director_snippet(port_var) | indent(4) }}
 
-{% if image_class == "service" %}
-    === ":material-file-document-outline: Director"
-
-        {{ appjail_director_snippet(port_var) | indent(8) }}
-
-        Save the files above, then run `appjail-director up`.
-
-{% endif %}
-    === ":material-console: CLI"
-
-        {{ appjail_snippet(port_var) | indent(8) }}
-
-        Save the files above, then run `sh run.sh`.
+    Save the files above, then run `appjail-director up`.
 {% endif %}
 {% if bastille_tab %}
 === ":bastille-bastille: Bastille"
 
     !!! warning "Experimental"
         Bastille's OCI support is experimental. It requires `buildah` and shares the host network stack (`inherit`). Mount volumes with `--volume HOST JAIL`; without it, image-declared volumes are stored under `${bastille_volumesdir}/${jail}`.
+{% if choices %}
+    Bastille runs one jail on the host's network stack, so it cannot add a database of its own: this is the default setup ({% for c in choices %}{{ c.label }} = {% for o in c.options if o.default %}{{ o.label }}{% endfor %}{{ ", " if not loop.last }}{% endfor %}). For another, point the app at a database you already run.
+{% endif %}
+    ```yaml { data-zip-bundle="{{ name }}-bastille" data-zip-filename="bastille-compose.yml" }
+    {{ bastille_compose_snippet(port_var) | indent(4) }}
+    ```
 
-    === ":material-file-document-outline: Compose"
-
-        ```yaml { data-zip-bundle="{{ name }}-bastille" data-zip-filename="bastille-compose.yml" }
-        {{ bastille_compose_snippet(port_var) | indent(8) }}
-        ```
-
-        Save as `bastille-compose.yml`, then run `bastille up`.
-
-    === ":material-console: CLI"
-
-        ```bash { data-zip-bundle="{{ name }}-bastille-cli" data-zip-filename="run.sh" }
-        {{ bastille_snippet(port_var) | indent(8) }}
-        ```
+    Save as `bastille-compose.yml`, then run `bastille up`.
 {% endif %}
 {%- else %}
-{#- Podman-only: keep formats flat, no redundant outer runtime tab. #}
+{#- Podman only: nothing to pick, so no tabs. #}
 {% if image_class == "service" %}
-=== ":material-docker: Compose"
+```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
+{{ compose_snippet(port_var) }}
+```
 
-    ```yaml { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }
-    {{ compose_snippet(port_var) | indent(4) }}
-    ```
+Save as `compose.yaml`, then run `podman-compose up -d`.
+{% elif docs is mapping and docs.usage %}
+{{ docs.usage | trim }}
+{% else %}
+```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
+{{ cli_snippet(port_var) }}
+```
 
-    Save as `compose.yaml`, then run `podman-compose up -d`.
-
+Save as `run.sh`, then run `sh run.sh`.
 {% endif %}
-=== ":material-console: Podman CLI"
-
-    ```bash { data-zip-bundle="{{ name }}-podman-cli" data-zip-filename="run.sh" }
-    {{ cli_snippet(port_var) | indent(4) }}
-    ```
-
-    Save as `run.sh`, then run `sh run.sh`.
-{%- if image_class == "service" %}
-
-=== ":simple-ansible: Ansible"
-
-    ```yaml { data-zip-bundle="{{ name }}-ansible" data-zip-filename="{{ name }}-deploy.yaml" }
-    {{ ansible_snippet(port_var) | indent(4) }}
-    ```
-
-    Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
-{%- endif %}
 {%- endif %}
 {% endblock %}
 
 {% block interactive_config %}
-{%- if image_class == "service" %}
+{#- The settings table lands under this heading (ux-settings-v2.js moves it
+    here); without the heading it stays wherever the plugin drops it. Every
+    page has at least the registry placeholder, a base image included, so
+    every page gets the heading; an empty table hides itself. #}
 
 ### Interactive Configuration
 
 <div class="placeholder-settings-panel"></div>
-{%- endif %}
 {% endblock %}
 
 {% block implementation_details %}

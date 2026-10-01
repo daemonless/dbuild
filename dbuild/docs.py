@@ -19,7 +19,10 @@ except ImportError:
 
 import dataclasses
 
+import yaml
+
 import dbuild
+from dbuild import choices as choices_mod
 from dbuild import log
 from dbuild.config import (
     DEFAULT_COMMUNITY,
@@ -314,6 +317,108 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     return text
 
 
+def _choice_variants(cfg: Config) -> list[tuple[Any, Any, str, str]]:
+    """(choice, option, compose text, env text) for every non-default option."""
+    out = []
+    for c in cfg.metadata.choices:
+        for o in c.options:
+            if o.id == c.default:
+                continue
+            compose_text = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, o)
+            out.append((c, o, compose_text, choices_mod.env_with_option(cfg.example_env, c, o)))
+    return out
+
+
+def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The choices as the templates read them: options in declared order,
+    the default first, each with its files in both renderings. context_env
+    is the app's env list as the templates see it (name/default/placeholder)."""
+    if not cfg.metadata.choices or not cfg.compose_text:
+        return []
+    variants = {(c.id, o.id): (ct, et) for c, o, ct, et in _choice_variants(cfg)}
+    out = []
+    for c in cfg.metadata.choices:
+        opts = []
+        ordered = sorted(c.options, key=lambda o: o.id != c.default)
+        for o in ordered:
+            if o.id == c.default:
+                # The default is the file as it stands.
+                ct, et = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, None), cfg.example_env
+                compose_file, env_file = "compose.yaml", "example.env"
+            else:
+                ct, et = variants[(c.id, o.id)]
+                compose_file, env_file = choices_mod.variant_names(c, o)
+            # The AppJail side: the director's depends_on grows the engine's
+            # jail, and the .env takes the option's values with the host
+            # being that jail's name.
+            aj = dict(cfg.metadata.appjail) if isinstance(cfg.metadata.appjail, dict) else {}
+            if o.director_dep:
+                aj["depends_on"] = [*(aj.get("depends_on") or []), o.director_dep]
+            values = dict(o.env)
+            values.update(o.env_appjail)
+            for ln in o.env_lines:
+                k, _, rest = ln.partition("=")
+                values.setdefault(k, rest.partition("  #")[0].strip())
+            for a in o.ask:
+                values.setdefault(a.name, a.default)
+            aj_env = []
+            seen = set()
+            for e in context_env:
+                item = dict(e)
+                if item["name"] in values:
+                    item["default"] = values[item["name"]]
+                    item.pop("placeholder", None)
+                seen.add(item["name"])
+                aj_env.append(item)
+            for k, v in values.items():
+                if k not in seen:
+                    # In .env for the director's own use (a volume device),
+                    # not something to hand the app's jail.
+                    aj_env.append({"name": k, "default": v, "env_only": True})
+            # What this option runs, in words: the services of its flattened
+            # compose with their images, the jails under director, and the
+            # host folders the data lands in. The page says this before any
+            # YAML.
+            parsed = (yaml.safe_load(ct) or {}).get("services") or {}
+            engine_services = {ENGINE["service"] for ENGINE in choices_mod.ENGINES.values() if ENGINE.get("service")}
+            parts, jails = [], []
+            for sname, svc in parsed.items():
+                img = str((svc or {}).get("image", ""))
+                short = img.split("/")[-1]
+                kind = "db" if sname in engine_services else "app"
+                parts.append({"name": sname, "image": short, "kind": kind})
+                jails.append({"name": sname.replace("-", "_") if kind == "app" else f"{cfg.image}_{sname}".replace("-", "_"), "image": short, "kind": kind})
+            if o.id == "external":
+                parts.append({"name": "your database", "image": "not run here", "kind": "none"})
+                jails.append({"name": "your database", "image": "not run here", "kind": "none"})
+            folders = []
+            for svc in parsed.values():
+                for v in (svc or {}).get("volumes") or []:
+                    src = v.split(":")[0] if isinstance(v, str) else str((v or {}).get("source", ""))
+                    if src.startswith("/") and src not in folders:
+                        folders.append(src)
+            for ln in o.env_lines:
+                k, _, v = ln.partition("=")
+                if k.endswith("_LOCATION") and v and v not in folders:
+                    folders.append(v)
+            folders = [f.replace("/containers", "@CONTAINER_CONFIG_ROOT@") for f in folders]
+            opts.append({
+                "id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default,
+                "parts": parts, "jails": jails, "folders": folders,
+                "appjail": aj, "appjail_env": aj_env,
+                "jail_template_file": o.jail_template_file, "jail_template": o.jail_template,
+                "profile": o.profile, "env": o.env,
+                "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": a.values} for a in o.ask],
+                "compose_file": compose_file, "env_file": env_file,
+                "compose_text": ct, "example_env": et,
+                "compose_text_site": _site_placeholders(ct),
+                "example_env_site": _site_placeholders(et, env_file=True),
+                "zip": f"{cfg.image}-podman" + ("" if o.id == c.default else f"-{o.id}"),
+            })
+        out.append({"id": c.id, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
+    return out
+
+
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
     """Build a context dict for templates with enriched env/vol/port data from Config."""
     meta = cfg.metadata
@@ -416,6 +521,9 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         # what a one-service page gets from its generated snippet.
         "compose_text_site": _site_placeholders(cfg.compose_text),
         "example_env_site": _site_placeholders(cfg.example_env, env_file=True),
+        # What the compose offers (x-daemonless.choices): per option, the
+        # flattened compose and .env a reader copies. Empty for most images.
+        "choices": [],  # filled below, once env is known
         # The AppJail bundle carries the sidecar (x-daemonless.appjail.depends_on),
         # so its Director section runs the whole app, not the app alone.
         "appjail_sidecar": bool((getattr(meta, "appjail", None) or {}).get("depends_on")),
@@ -532,6 +640,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             "target": tgt
         })
 
+    context["choices"] = _choice_context(cfg, context["env"])
     return context
 
 
@@ -771,6 +880,18 @@ def render_generated(
                 errors.append(
                     f"README.j2 failed to render: included template '{e.name}' not found"
                 )
+
+    # Stack choices: the flattened compose + .env per non-default option, so
+    # whoever copies files instead of running fjord needs no flag.
+    if cfg.metadata.choices and cfg.compose_text:
+        try:
+            for c, o, compose_text, env_text in _choice_variants(cfg):
+                compose_file, env_file = choices_mod.variant_names(c, o)
+                head = f"# Generated by dbuild from compose.yaml: {c.label} = {o.label}. Edit compose.yaml, not this.\n"
+                outputs[compose_file] = head + compose_text
+                outputs[env_file] = head + env_text
+        except ValueError as e:
+            errors.append(f"choices: {e}")
 
     # Containerfiles — repo-only loader (local includes, no bundled fallback).
     for j2_path in sorted(base.glob("Containerfile*.j2")):

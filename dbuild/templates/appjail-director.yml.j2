@@ -48,7 +48,7 @@ services:
     oci:
       user: root
       environment:
-{%- for e in env %}
+{%- for e in env if not e.env_only %}
         - {{ e.name }}: !ENV '${{ '{' }}{{ e.name }}{{ '}' }}'
 {%- endfor %}
 {%- endif %}
@@ -64,6 +64,9 @@ services:
 {%- for dep in appjail.depends_on %}
   {{ dep.name }}:
     name: {{ dep.name | replace("-", "_") }}
+{%- if dep.priority %}
+    priority: {{ dep.priority }}
+{%- endif %}
     options:
       - from: {{ dep.image }}
 {#- A sidecar needs a jail template too (host networking, jail params); its
