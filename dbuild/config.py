@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dbuild import choices as choices_mod
+
 DEFAULT_COMMUNITY = "Discord:https://discord.gg/Kb9tkhecZT"
 
 try:
@@ -383,13 +385,17 @@ class Metadata:
         "desc": (
             "Image class controlling README layout. Valid values: "
             + ", ".join(f"`{c}`" for c in VALID_IMAGE_CLASSES)
-            + ". `service` (default): persistent daemon with compose/CLI/ansible docs. "
+            + ". `service` (default): persistent daemon with compose, AppJail Director and Bastille docs. "
             "`cli`: run-and-exit tool, deployment section replaced with usage example. "
             "`base`: base image for FROM, no deployment docs."
         ),
     })
     deprecated: DeprecationInfo | None = field(default=None, metadata={
         "desc": "Mark this image as deprecated. Bare key disables builds; pass a dict with `reason`, `replacement`, `sunset_date`, and/or `migration_guide` for structured messaging.",
+    })
+    choices: list[Any] = field(default_factory=list, metadata={
+        "doc": "Stack choices (x-daemonless.choices): what the compose offers "
+               "under profiles -- a database to pick, a part to leave out. See dbuild.choices.",
     })
     readme: ReadmeBlocks | None = field(default=None, metadata={
         "desc": "Custom Markdown blocks to inject into specific sections of the README.",
@@ -420,6 +426,7 @@ class Config:
     # environment. Empty for a single service, where the snippet is right.
     compose_text: str = ""
     example_env: str = ""
+    compose_data: dict[str, Any] = field(default_factory=dict)
 
     @property
     def full_image(self) -> str:
@@ -751,6 +758,7 @@ def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = Non
         healthcheck=meta.get("healthcheck"),
         docs=meta.get("docs", {}),
         image_class=meta.get("class", "service"),
+        choices=choices_mod.parse(meta, data),
         deprecated=_parse_deprecated(meta),
         readme=ReadmeBlocks(**meta.get("readme", {})),
     )
@@ -957,7 +965,10 @@ def load(base: Path | None = None) -> Config:
     compose_text = ""
     example_env = ""
     services = compose_data.get("services")
-    if isinstance(services, dict) and len(services) > 1:
+    # The compose itself is what people copy when it is more than one
+    # service -- or offers choices, since the flattened files start from it.
+    offers_choices = bool((compose_data.get("x-daemonless") or {}).get("choices"))
+    if isinstance(services, dict) and (len(services) > 1 or offers_choices):
         compose_text = _without_top_level_key(compose_path.read_text(), "x-daemonless")
         example_env_path = base / "example.env"
         if example_env_path.is_file():
@@ -976,6 +987,7 @@ def load(base: Path | None = None) -> Config:
         ports=ports,
         compose_text=compose_text,
         example_env=example_env,
+        compose_data=compose_data if isinstance(compose_data, dict) else {},
     )
 
 

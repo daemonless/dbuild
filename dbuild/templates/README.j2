@@ -34,7 +34,7 @@
 {%- macro compose_snippet(override_port=None) -%}
 services:
   {{ name }}:
-    image: "{{ reg_var }}/{{ name }}:latest"
+    image: "{{ reg_var }}/{{ name }}:{{ default_tag }}"
     container_name: {{ name }}
 {%- if env %}
     environment:
@@ -82,23 +82,34 @@ services:
 {%- endif %}
 {%- endmacro %}
 
-{%- macro appjail_director_snippet(override_port=None) -%}
+{#- option: one of a choice's options (see dbuild.choices); its director
+    carries the service dbuild supplies and its .env the option's values. #}
+{%- macro appjail_director_snippet(override_port=None, option=None) -%}
+{%- set appjail = option.appjail if option else appjail %}
+{%- set env = option.appjail_env if option else env %}
+{%- set zip = name ~ "-appjail" ~ ("-" ~ option.id if option and not option.default else "") %}
 {%- if render_mode == "mkdocs" %}
-``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename=".env" }
+``` { data-zip-bundle="{{ zip }}" data-zip-filename=".env" }
 {% include 'appjail.env.j2' %}
 ```
 
-```yaml { data-zip-bundle="{{ name }}-appjail" data-zip-filename="appjail-director.yaml" }
+```yaml { data-zip-bundle="{{ zip }}" data-zip-filename="appjail-director.yaml" }
 {% include 'appjail-director.yml.j2' %}
 ```
 
-``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="Makejail" }
+``` { data-zip-bundle="{{ zip }}" data-zip-filename="Makejail" }
 {% include 'Makejail.j2' %}
 ```
 {%- if jail_allow -%}
 {{ '\n' }}
-``` { data-zip-bundle="{{ name }}-appjail" data-zip-filename="template.conf" }
+``` { data-zip-bundle="{{ zip }}" data-zip-filename="template.conf" }
 {% include 'appjail-template.conf.j2' %}
+```
+{%- endif %}
+{%- if option and option.jail_template_file -%}
+{{ '\n' }}
+``` { data-zip-bundle="{{ zip }}" data-zip-filename="{{ option.jail_template_file }}" }
+{{ option.jail_template | trim }}
 ```
 {%- endif %}
 {%- else -%}
@@ -125,6 +136,14 @@ services:
 
 ```
 {% include 'appjail-template.conf.j2' %}
+```
+{%- endif %}
+{%- if option and option.jail_template_file -%}
+{{ '\n' }}
+**{{ option.jail_template_file }}**:
+
+```
+{{ option.jail_template | trim }}
 ```
 {%- endif %}
 {%- endif %}
@@ -155,85 +174,16 @@ podman run -d --name {{ name }} \
 {%- for v in volumes %}
   -v {{ vol_src(v) }}:{{ vol_tgt(v) }}{{ " # optional" if v.optional else "" }} \
 {%- endfor %}
-  {{ reg_var }}/{{ name }}:latest
+  {{ reg_var }}/{{ name }}:{{ default_tag }}
 {%- endmacro %}
 
-{%- macro appjail_snippet(override_port=None) -%}
-{%- if render_mode == "mkdocs" %}
-```bash { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="run.sh" }
-{%- else %}
-```bash
-{%- endif %}
-{%- if image_class == "service" -%}
-{{ '\n' }}appjail oci run -Pd \
-{%- else %}
-{{ '\n' }}appjail oci run \
-  -o ephemeral \
-{%- endif %}
-  -o overwrite=force \
-  -o container="args:--pull" \
-{%- if appjail and appjail.cli and appjail.cli.options %}
-{%- for opt in appjail.cli.options %}
-  -o {{ opt }} \
-{%- endfor %}
-{%- else %}
-  -o virtualnet=":<random> default" \
-  -o nat \
-{%- endif %}
-{%- if jail_allow -%}
-{{ '\n' }}  -o template=template.conf \
-{%- endif %}
-{%- for p in ports %}
-{%- if loop.first %}
-  -o expose="{{ override_port if override_port else port_var }}:{{ p.target }} proto:{{ p.protocol }}" \
-{%- else %}
-  -o expose="{{ p.port }}:{{ p.target }} proto:{{ p.protocol }}" \
-{%- endif %}
-{%- endfor %}
-{%- for e in env %}
-  -e {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
-{%- endfor %}
-{%- for v in volumes %}
-  -o fstab="{{ vol_src(v) }} {{ v.path }} <pseudofs>" \{{ " # optional" if v.optional else "" }}
-{%- endfor %}
-  {{ reg_var }}/{{ name }}:latest {{ name }}
-```
-{%- if jail_allow -%}
-{{ '\n' }}
-**template.conf**:
 
-{%- if render_mode == "mkdocs" %}
-``` { data-zip-bundle="{{ name }}-appjail-cli" data-zip-filename="template.conf" }
-{%- else %}
-```
-{%- endif %}
-{% include 'appjail-template.conf.j2' %}
-```
-{%- endif %}
-{%- endmacro %}
-
-{#- Bastille OCI (experimental). Bastille shares the host network stack
-    (`inherit`). Volumes mount via `--volume HOST JAIL`; without the flag,
-    image-declared VOLUMEs land under ${bastille_volumesdir}/${jail}.
-    `bastille up` reads bastille-compose.yml with its own schema
-    (name/image/network/ports/environment/volumes/depend), so we hand-shape
-    the file rather than reuse compose_snippet. -#}
-{%- macro bastille_snippet(override_port=None) -%}
-bastille create -O \
-{%- for e in env %}
-  --env {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
-{%- endfor %}
-{%- for v in volumes %}
-  --volume {{ vol_src(v) }} {{ v.path }} \
-{%- endfor %}
-  {{ name }} {{ reg_var }}/{{ name }}:latest inherit
-{%- endmacro %}
 
 {%- macro bastille_compose_snippet(override_port=None) -%}
 services:
   {{ name }}:
     name: {{ name }}
-    image: "{{ reg_var }}/{{ name }}:latest"
+    image: "{{ reg_var }}/{{ name }}:{{ default_tag }}"
     network:
       - mode: host
 {%- if env %}
@@ -250,43 +200,6 @@ services:
 {%- endif %}
 {%- endmacro %}
 
-{%- macro ansible_snippet(override_port=None) -%}
-- name: Deploy {{ name }}
-  containers.podman.podman_container:
-    name: {{ name }}
-    image: "{{ reg_var }}/{{ name }}:latest"
-    state: started
-    restart_policy: always
-{%- if env %}
-    env:
-{%- for e in env %}
-      {{ e.name }}: "{{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}"
-{%- endfor %}
-{%- endif %}
-{%- if ports %}
-    ports:
-{%- for p in ports %}
-{%- if loop.first %}
-      - "{{ override_port if override_port else port_var }}:{{ p.target }}"
-{%- else %}
-      - "{{ p.port }}:{{ p.target }}"
-{%- endif %}
-{%- endfor %}
-{%- endif %}
-{%- if volumes %}
-    volumes:
-{%- for v in volumes %}
-      - "{{ vol_src(v) }}:{{ vol_tgt(v) }}"{{ " # optional" if v.optional else "" }}
-{%- endfor %}
-{%- endif %}
-{%- if annotations %}
-    annotation:
-{%- for a in annotations %}
-{%- set kv = a.split("=", 1) %}
-      {{ kv[0] }}: "{{ kv[1] }}"
-{%- endfor %}
-{%- endif %}
-{%- endmacro -%}
 
 {#- Version-tags table, with an optional arch suffix appended to every tag
     (e.g. suffix="-aarch64" -> `15.1-aarch64`). Bare (amd64) uses suffix="". -#}
@@ -447,7 +360,34 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 ### Podman Compose
 
-{%- if compose_text %}
+{%- if compose_text and choices %}
+{%- for c in choices %}
+
+**{{ c.label }}.** {{ c.doc }}
+{%- for o in c.options %}
+
+#### {{ o.label }}{% if o.default %} (default){% endif %}
+{%- if o.doc %}
+
+{{ o.doc }}
+{%- endif %}
+
+**1.** Save as `.env`{% if o.ask %} and fill in {{ o.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
+
+```env { data-zip-bundle="{{ o.zip }}" data-zip-filename=".env" }
+{{ o.example_env | trim }}
+```
+
+**2.** Save as `compose.yaml`:
+
+```yaml { data-zip-bundle="{{ o.zip }}" data-zip-filename="compose.yaml" }
+{{ o.compose_text | trim }}
+```
+
+Then run `podman-compose up -d`.
+{%- endfor %}
+{%- endfor %}
+{%- elif compose_text %}
 {%- if example_env %}
 
 **1.** Save as `.env` and fill in what is empty:
@@ -488,7 +428,20 @@ Then run `podman-compose up -d`.
 Save as `compose.yaml`, then run `podman-compose up -d`.
 {%- endif %}
 {%- endif %}
-{%- if appjail_enabled and (not compose_text or appjail_sidecar) %}
+{%- if appjail_enabled and choices %}
+
+### AppJail Director
+{%- for c in choices %}
+{%- for o in c.options %}
+
+#### {{ o.label }}{% if o.default %} (default){% endif %}
+
+{{ appjail_director_snippet(option=o) }}
+
+Save the files above, then run `appjail-director up`.
+{%- endfor %}
+{%- endfor %}
+{%- elif appjail_enabled and (not compose_text or appjail_sidecar) %}
 
 ### AppJail Director
 
@@ -504,11 +457,17 @@ Save the files above, then run `appjail-director up`.
 {%- endif %}
 {%- endif %}
 
-{#- One-container recipes cannot start a sidecar: a compose with several
-    services (an app and its database) is deployed with compose only. #}
-{%- if image_class in ["service", "cli"] and not compose_text %}
+{#- One way per runtime. Compose for a service (it is also what fjord
+    deploys), the one-liner only for a tool that runs and exits. Bastille's
+    OCI support is experimental and single-container, so it stays off a
+    compose that carries a sidecar. #}
+{%- if image_class == "cli" %}
 
 ### Podman CLI
+{%- if docs is mapping and docs.usage %}
+
+{{ docs.usage | trim }}
+{%- else %}
 
 ```bash
 {{ cli_snippet() }}
@@ -516,18 +475,8 @@ Save the files above, then run `appjail-director up`.
 
 Save as `run.sh`, then run `sh run.sh`.
 {%- endif %}
-{%- if image_class == "service" and not compose_text %}
-{%- if appjail_enabled %}
-
-### AppJail
-
-{{ appjail_snippet() }}
-
-Save the files above, then run `sh run.sh`.
-
-{{ appjail_note_expose_ports() }}
 {%- endif %}
-{%- if bastille_enabled %}
+{%- if image_class == "service" and not compose_text and bastille_enabled %}
 
 ### Bastille
 
@@ -538,20 +487,7 @@ Save the files above, then run `sh run.sh`.
 {{ bastille_compose_snippet() }}
 ```
 
-Save as `bastille-compose.yml`, then run `bastille up`. Or via CLI:
-
-```bash
-{{ bastille_snippet() }}
-```
-{%- endif %}
-
-### Ansible
-
-```yaml
-{{ ansible_snippet() }}
-```
-
-Save as `{{ name }}-deploy.yaml`, then run `ansible-playbook {{ name }}-deploy.yaml`.
+Save as `bastille-compose.yml`, then run `bastille up`.
 {%- endif %}
 {%- endblock %}
 

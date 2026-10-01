@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from dbuild import choices as choices_mod
 from dbuild.config import VALID_CATEGORIES, VALID_TYPES
 
 try:
@@ -101,6 +102,10 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                     f"Invalid category '{category}'."
                     f" Valid: {', '.join(VALID_CATEGORIES)}"
                 )
+
+            if verbose:
+                print("  checking choices")
+            errors.extend(choices_mod.validate(choices_mod.parse(meta, data), data))
 
             if verbose:
                 print("  checking type")
