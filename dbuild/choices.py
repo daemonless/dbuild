@@ -110,6 +110,9 @@ class Option:
     profile: str = ""
     env: dict[str, str] = field(default_factory=dict)
     ask: list[Ask] = field(default_factory=list)
+    # Services this option leaves out (a part the default runs and this
+    # option does without: immich without machine learning).
+    drop: list[str] = field(default_factory=list)
     # A service dbuild adds for this option (database kind), as compose YAML
     # text under services:, and the .env lines it needs beyond env/ask.
     service_yaml: str = ""
@@ -242,6 +245,7 @@ def parse(meta: dict[str, Any], compose_data: dict[str, Any] | None = None) -> l
                     profile=str(o.get("profile", "")),
                     env={str(k): str(v) for k, v in (o.get("env") or {}).items()},
                     ask=asks,
+                    drop=[str(x) for x in (o.get("drop") or [])],
                 ))
         default = str(c.get("default", "")) or (opts[0].id if opts else "")
         out.append(Choice(id=str(cid), label=label, kind=kind, doc=doc, default=default,
@@ -287,6 +291,11 @@ def validate(choices: list[Choice], compose_data: dict[str, Any]) -> list[str]:
         for o in c.options:
             if o.profile and o.profile not in profiled:
                 errors.append(f"{where}.options.{o.id}: no service carries profiles: [{o.profile}]")
+            for d in o.drop:
+                if d not in services:
+                    errors.append(f"{where}.options.{o.id}: drops '{d}', which is not a service")
+            if c.default_option is o and o.drop:
+                errors.append(f"{where}: the default option '{o.id}' drops a service; the default is the compose as it stands")
             for a in o.ask:
                 if a.type not in ("string", "secret"):
                     errors.append(f"{where}.options.{o.id}: ask {a.name}: type must be string or secret")
@@ -298,19 +307,31 @@ def validate(choices: list[Choice], compose_data: dict[str, Any]) -> list[str]:
 _SERVICE_RE = re.compile(r"^  ([A-Za-z0-9_.-]+):\s*(#.*)?$")
 
 
-def flatten_compose(text: str, compose_data: dict[str, Any], option: Option | None) -> str:
-    """The compose for one option: its profile's services in, every other
-    profiled service out, ``profiles:`` keys gone, and the service dbuild
-    supplies (a database) appended under ``services:``.
+def _as_list(option) -> list[Option]:
+    if option is None:
+        return []
+    return list(option) if isinstance(option, (list, tuple)) else [option]
+
+
+def flatten_compose(text: str, compose_data: dict[str, Any], option) -> str:
+    """The compose for one option, or one option per choice taken together:
+    their profiles' services in, every other profiled service out, dropped
+    services gone, ``profiles:`` keys gone, and the service dbuild supplies
+    (a database) appended under ``services:``.
 
     Line-based so the comments survive -- they are the explanation a reader
     needs, and a YAML round trip drops them. Checked afterwards by parsing:
-    the result has to hold exactly the services the option gets.
+    the result has to hold exactly the services the options get.
     """
-    profile = option.profile if option else ""
+    options = _as_list(option)
+    profiles = {o.profile for o in options if o.profile}
+    drop = {d for o in options for d in o.drop}
+    option = next((o for o in options if o.service_yaml), None)
     services = compose_data.get("services") or {}
     keep = {n for n, s in services.items()
-            if not (s or {}).get("profiles") or profile in [str(p) for p in (s or {}).get("profiles")]}
+            if n not in drop
+            and (not (s or {}).get("profiles") or profiles & {str(p) for p in (s or {}).get("profiles")})}
+    gone = set(services) - keep
     # The app waits for the service dbuild adds: compose starts a
     # depends_on first, so the app does not spend its first seconds
     # retrying a database that is still coming up.
@@ -320,6 +341,7 @@ def flatten_compose(text: str, compose_data: dict[str, Any], option: Option | No
     in_services = False
     dropping = False
     skipping_profiles = False
+    in_depends = False
     inserted = False
     for line in text.splitlines():
         top = bool(line) and not line[0].isspace() and not line.startswith("#")
@@ -351,6 +373,31 @@ def flatten_compose(text: str, compose_data: dict[str, Any], option: Option | No
                 if stripped.startswith("- "):
                     continue
                 skipping_profiles = False
+            # A service that is gone must leave the others' depends_on too, or
+            # compose refuses the file. Flow form ([a, b]) and block form.
+            if gone:
+                fm = re.match(r"^(\s*depends_on:\s*)\[(.*)\]\s*$", line)
+                if fm:
+                    left = [x.strip() for x in fm.group(2).split(",") if x.strip() and x.strip() not in gone]
+                    if not left:
+                        continue
+                    out.append(f"{fm.group(1)}[{', '.join(left)}]")
+                    continue
+                if re.match(r"^\s*depends_on:\s*$", line):
+                    in_depends = True
+                    depends_header = line
+                    depends_kept = 0
+                    continue
+                if in_depends:
+                    dm = re.match(r"^\s*-\s*([A-Za-z0-9_.-]+)\s*$", line)
+                    if dm:
+                        if dm.group(1) in gone:
+                            continue
+                        if depends_kept == 0:
+                            out.append(depends_header)
+                        depends_kept += 1
+                    else:
+                        in_depends = False
         out.append(line)
     if in_services and option and option.service_yaml and not inserted:
         out.append(option.service_yaml.rstrip("\n"))
@@ -362,9 +409,24 @@ def flatten_compose(text: str, compose_data: dict[str, Any], option: Option | No
         want.add(_SERVICE_RE.match(option.service_yaml.splitlines()[0]).group(1))
     got = set(((yaml.safe_load(result) or {}).get("services") or {}).keys())
     if got != want:
-        raise ValueError(f"flattening for option '{option.id if option else 'default'}' kept {sorted(got)}, "
+        label = ", ".join(o.id for o in options) or "default"
+        raise ValueError(f"flattening for '{label}' kept {sorted(got)}, "
                          f"wanted {sorted(want)}; the compose's services need two-space indents")
     return result
+
+
+def env_with_options(example_env: str, pairs: list[tuple[Choice, Option]]) -> str:
+    """example.env with every (choice, option) pair applied in turn."""
+    out = example_env
+    for c, o in pairs:
+        out = env_with_option(out, c, o)
+    return out
+
+
+def variant_suffix(pairs: list[tuple[Choice, Option]]) -> str:
+    """``<choice>-<option>`` per non-default pair, joined by dots; "" when
+    every pair is its choice's default."""
+    return ".".join(f"{c.id}-{o.id}" for c, o in pairs if o.id != c.default)
 
 
 def env_with_option(example_env: str, choice: Choice, option: Option) -> str:
@@ -412,3 +474,86 @@ def variant_names(choice: Choice, option: Option) -> tuple[str, str]:
     """(compose file, env file) for a non-default option."""
     suffix = f"{choice.id}-{option.id}"
     return f"compose.{suffix}.yaml", f"example.{suffix}.env"
+
+
+# --- for fjord ---------------------------------------------------------
+
+def service_block(text: str, name: str) -> str:
+    """One service's block as written in the compose (two-space indent under
+    ``services:``), its ``profiles:`` lines left out. What a consumer adds
+    back when the option that owns the service is picked."""
+    out: list[str] = []
+    in_services = False
+    in_block = False
+    skipping_profiles = False
+    for line in text.splitlines():
+        top = bool(line) and not line[0].isspace() and not line.startswith("#")
+        if top:
+            if in_block:
+                break
+            in_services = line.startswith("services:")
+            continue
+        if not in_services:
+            continue
+        m = _SERVICE_RE.match(line)
+        if m:
+            if in_block:
+                break
+            in_block = m.group(1) == name
+            if in_block:
+                out.append(line)
+            continue
+        if not in_block:
+            continue
+        stripped = line.strip()
+        if re.match(r"^profiles:\s*(\[.*\])?\s*$", stripped):
+            skipping_profiles = stripped.endswith("profiles:")
+            continue
+        if skipping_profiles:
+            if stripped.startswith("- "):
+                continue
+            skipping_profiles = False
+        out.append(line)
+    return "\n".join(out).rstrip("\n") + ("\n" if out else "")
+
+
+def to_fjord(choices: list[Choice], compose_text: str, compose_data: dict[str, Any]) -> dict[str, Any]:
+    """The choices as fjord's catalog carries them (x-fjord.choices): per
+    option, the env it sets, the services to add (its own block text, or the
+    one dbuild supplies), the services to drop, the values to ask for, the
+    defaults the extra services need and the secrets to make up."""
+    services = compose_data.get("services") or {}
+    app = next(iter(services), "")
+    out = []
+    for c in choices:
+        opts = []
+        for o in c.options:
+            add = o.service_yaml
+            depends: dict[str, list[str]] = {}
+            if o.profile:
+                for name, svc in services.items():
+                    if o.profile in [str(p) for p in ((svc or {}).get("profiles") or [])]:
+                        add += service_block(compose_text, name)
+            if o.service_yaml and app:
+                depends[app] = [_SERVICE_RE.match(o.service_yaml.splitlines()[0]).group(1)]
+            defaults, secrets = {}, []
+            for ln in o.env_lines:
+                k, _, rest = ln.partition("=")
+                v = rest.partition("  #")[0].strip()
+                if "set one" in rest:
+                    secrets.append(k)
+                else:
+                    # A data folder belongs to the stack, not the app: two
+                    # installs of one app must not share a postgres directory.
+                    # fjord expands {{base}} and {{stack}} at install.
+                    if app and v.startswith(f"/containers/{app}/"):
+                        v = "{{base}}/{{stack}}/" + v[len(f"/containers/{app}/"):]
+                    defaults[k] = v
+            opts.append({
+                "id": o.id, "label": o.label, "doc": o.doc,
+                "env": dict(o.env), "defaults": defaults, "secrets": secrets,
+                "services": add, "depends_on": depends, "drop": list(o.drop),
+                "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": dict(a.values)} for a in o.ask],
+            })
+        out.append({"id": c.id, "kind": c.kind, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
+    return {"choices": out}

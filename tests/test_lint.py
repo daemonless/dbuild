@@ -299,3 +299,22 @@ class TestStaleBaseline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStackRepoLint(unittest.TestCase):
+    """A stack (type: stack) builds no image: no Containerfile, no user."""
+
+    def test_stack_needs_no_containerfile_or_user(self):
+        import tempfile
+        from pathlib import Path
+
+        from dbuild.lint import lint_repo
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "compose.yaml").write_text(
+                "name: photos\nx-daemonless:\n  title: Photos\n  icon: ':x:'\n  category: Photos & Media\n"
+                "  description: d\n  upstream_url: https://example.com\n  type: stack\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n")
+            errors, _ = lint_repo(p)
+        self.assertNotIn("Missing Containerfile", errors)
+        self.assertFalse([e for e in errors if "x-daemonless.user" in e], errors)

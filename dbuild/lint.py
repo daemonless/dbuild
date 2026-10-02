@@ -77,7 +77,12 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             # Fields that become optional (warnings only) for deprecated images
             OPTIONAL_WHEN_DEPRECATED = {"upstream_url", "description"}
 
+            # A stack (type: stack) builds no image of its own: it runs other
+            # images, so it has no user to name and no Containerfile.
+            is_stack = meta.get("type") == "stack"
             for field in REQUIRED_X_DAEMONLESS_FIELDS:
+                if is_stack and field == "user":
+                    continue
                 if field not in meta or not meta[field]:
                     if is_deprecated and field in OPTIONAL_WHEN_DEPRECATED:
                         warnings.append(
@@ -344,6 +349,11 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
 
     if verbose:
         print("  checking Containerfile")
+    is_stack_repo = False
+    try:
+        is_stack_repo = ((yaml.safe_load((repo_path / "compose.yaml").read_text()) or {}).get("x-daemonless") or {}).get("type") == "stack"
+    except Exception:
+        pass
     has_containerfile = any(
         (repo_path / name).exists()
         for name in (
@@ -351,7 +361,7 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             *variant_containerfiles,
         )
     )
-    if not has_containerfile:
+    if not has_containerfile and not is_stack_repo:
         errors.append("Missing Containerfile")
 
     if verbose:

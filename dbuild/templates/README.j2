@@ -87,8 +87,48 @@ services:
 {%- macro appjail_director_snippet(override_port=None, option=None) -%}
 {%- set appjail = option.appjail if option else appjail %}
 {%- set env = option.appjail_env if option else env %}
-{%- set zip = name ~ "-appjail" ~ ("-" ~ option.id if option and not option.default else "") %}
+{%- set zip = name ~ "-appjail" ~ ("-" ~ option.id | replace(".", "-") if option and not option.default else "") %}
+{%- set authored_dir = option.director_text if option else director_override_text %}
+{%- set authored_env = option.director_env_text if option else director_override_env %}
+{%- if authored_dir %}
+{#- The author wrote the whole director (a stack): show it, its .env and the
+    jail templates it ships, not the one-service derivation. #}
 {%- if render_mode == "mkdocs" %}
+``` { data-zip-bundle="{{ zip }}" data-zip-filename=".env" }
+{{ authored_env | trim }}
+```
+
+```yaml { data-zip-bundle="{{ zip }}" data-zip-filename="appjail-director.yml" }
+{{ authored_dir | trim }}
+```
+{%- for t in sidecar_templates %}
+{{ '\n' }}
+``` { data-zip-bundle="{{ zip }}" data-zip-filename="{{ t.file }}" }
+{{ t.text }}
+```
+{%- endfor %}
+{%- else %}
+**.env**:
+
+```
+{{ authored_env | trim }}
+```
+
+**appjail-director.yml**:
+
+```yaml
+{{ authored_dir | trim }}
+```
+{%- for t in sidecar_templates %}
+{{ '\n' }}
+**{{ t.file }}**:
+
+```
+{{ t.text }}
+```
+{%- endfor %}
+{%- endif %}
+{%- elif render_mode == "mkdocs" %}
 ``` { data-zip-bundle="{{ zip }}" data-zip-filename=".env" }
 {% include 'appjail.env.j2' %}
 ```
@@ -285,7 +325,9 @@ Source: dbuild templates
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/daemonless/{{ name }}/build.yaml?style=flat-square&label=Build&color=green)](https://github.com/daemonless/{{ name }}/actions)
 [![Last Commit](https://img.shields.io/github/last-commit/daemonless/{{ name }}?style=flat-square&label=Last+Commit&color=blue)](https://github.com/daemonless/{{ name }}/commits)
+{%- if variants %}
 [![OCI Pulls](https://img.shields.io/docker/pulls/daemonless/{{ name }}?style=flat-square&label=OCI+Pulls&color=blue)](https://hub.docker.com/r/daemonless/{{ name }})
+{%- endif %}
 {%- if mlock %}
 [![mlock Required](https://img.shields.io/badge/mlock-required-orange?style=flat-square&logo=freebsd&logoColor=white)]({% if render_mode == "mkdocs" %}/guides/ocijail-patch/{% else %}https://daemonless.io/guides/ocijail-patch/{% endif %})
 {%- endif %}
@@ -314,10 +356,14 @@ Source: dbuild templates
 {%- endif %}
 {%- endblock %}
 
+{%- if variants or (readme and readme.version_tags) %}
+
 ## Version Tags
+{%- endif %}
 
 {%- if readme and readme.version_tags %}
 {{ readme.version_tags }}
+{%- elif not variants %}
 {%- elif render_mode == "mkdocs" and 'aarch64' in (architectures | default(['amd64'])) %}
 
 === "Shared (recommended)"
@@ -337,6 +383,17 @@ Source: dbuild templates
 {{ version_tags_table() }}
 {%- endif %}
 {%- endblock %}
+
+{%- if stack_parts | length > 1 %}
+
+## Parts
+
+| Service | Image | Role | |
+|---|---|---|---|
+{%- for p in stack_parts %}
+| **{{ p.name }}** | `{{ p.image }}` | {{ p.desc }}{% if p.when %} ({{ p.when }}){% endif %} | {% if p.page %}[docs]({% if render_mode == "mkdocs" %}{{ p.page }}.md{% else %}https://github.com/daemonless/{{ p.page }}{% endif %}){% endif %} |
+{%- endfor %}
+{%- endif %}
 
 {%- block prerequisites -%}
 {%- if image_class == "service" %}
@@ -364,28 +421,28 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {%- for c in choices %}
 
 **{{ c.label }}.** {{ c.doc }}
-{%- for o in c.options %}
+{%- endfor %}
+{%- for cb in combos %}
 
-#### {{ o.label }}{% if o.default %} (default){% endif %}
-{%- if o.doc %}
+#### {{ cb.label }}{% if cb.default %} (default){% endif %}
+{%- if cb.doc %}
 
-{{ o.doc }}
+{{ cb.doc }}
 {%- endif %}
 
-**1.** Save as `.env`{% if o.ask %} and fill in {{ o.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
+**1.** Save as `.env`{% if cb.ask %} and fill in {{ cb.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
 
-```env { data-zip-bundle="{{ o.zip }}" data-zip-filename=".env" }
-{{ o.example_env | trim }}
+```env { data-zip-bundle="{{ cb.zip }}" data-zip-filename=".env" }
+{{ cb.example_env | trim }}
 ```
 
 **2.** Save as `compose.yaml`:
 
-```yaml { data-zip-bundle="{{ o.zip }}" data-zip-filename="compose.yaml" }
-{{ o.compose_text | trim }}
+```yaml { data-zip-bundle="{{ cb.zip }}" data-zip-filename="compose.yaml" }
+{{ cb.compose_text | trim }}
 ```
 
 Then run `podman-compose up -d`.
-{%- endfor %}
 {%- endfor %}
 {%- elif compose_text %}
 {%- if example_env %}
@@ -431,15 +488,13 @@ Save as `compose.yaml`, then run `podman-compose up -d`.
 {%- if appjail_enabled and choices %}
 
 ### AppJail Director
-{%- for c in choices %}
-{%- for o in c.options %}
+{%- for cb in combos %}
 
-#### {{ o.label }}{% if o.default %} (default){% endif %}
+#### {{ cb.label }}{% if cb.default %} (default){% endif %}
 
-{{ appjail_director_snippet(option=o) }}
+{{ appjail_director_snippet(option=cb) }}
 
 Save the files above, then run `appjail-director up`.
-{%- endfor %}
 {%- endfor %}
 {%- elif appjail_enabled and (not compose_text or appjail_sidecar) %}
 

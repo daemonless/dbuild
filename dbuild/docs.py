@@ -315,108 +315,243 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     return text
 
 
-def _choice_variants(cfg: Config) -> list[tuple[Any, Any, str, str]]:
-    """(choice, option, compose text, env text) for every non-default option."""
+def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
+    """Every way of answering the choices: one option per choice, every
+    combination, the all-default one first."""
+    import itertools
+
+    cs = cfg.metadata.choices
+    if not cs:
+        return []
+    ordered = [sorted(c.options, key=lambda o: o.id != c.default) for c in cs]
+    return [list(zip(cs, picks)) for picks in itertools.product(*ordered)]
+
+
+def _choice_variants(cfg: Config) -> list[tuple[list[tuple[Any, Any]], str, str]]:
+    """(pairs, compose text, env text) for every combination that is not the
+    default. The files people copy, one per combination."""
     out = []
-    for c in cfg.metadata.choices:
-        for o in c.options:
-            if o.id == c.default:
-                continue
-            compose_text = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, o)
-            out.append((c, o, compose_text, choices_mod.env_with_option(cfg.example_env, c, o)))
+    for pairs in _combinations(cfg):
+        if all(o.id == c.default for c, o in pairs):
+            continue
+        opts = [o for _, o in pairs]
+        compose_text = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, opts)
+        out.append((pairs, compose_text, choices_mod.env_with_options(cfg.example_env, pairs)))
     return out
 
 
-def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The choices as the templates read them: options in declared order,
-    the default first, each with its files in both renderings. context_env
-    is the app's env list as the templates see it (name/default/placeholder)."""
-    if not cfg.metadata.choices or not cfg.compose_text:
-        return []
-    variants = {(c.id, o.id): (ct, et) for c, o, ct, et in _choice_variants(cfg)}
+def _authored_director(cfg: Config) -> dict | None:
+    """The complete appjail.director an author wrote (immich), or None."""
+    aj = cfg.metadata.appjail if isinstance(cfg.metadata.appjail, dict) else None
+    d = (aj or {}).get("director")
+    return d if isinstance(d, dict) and d.get("services") else None
+
+
+def _director_for_option(director: dict, cfg: Config, option) -> dict:
+    """An authored director with only the services the chosen options run:
+    the dropped ones out, profiled ones in only when an option names their
+    profile. Service names match the compose's, so the compose's profiles
+    say which is which."""
+    services = cfg.compose_data.get("services") or {}
+    options = choices_mod._as_list(option)
+    profiles = {o.profile for o in options if o.profile}
+    drop = {d for o in options for d in o.drop}
+    out = dict(director)
+    kept = {}
+    for name, svc in (director.get("services") or {}).items():
+        if name in drop:
+            continue
+        svc_profiles = {str(p) for p in ((services.get(name) or {}).get("profiles") or [])}
+        if svc_profiles and not (svc_profiles & profiles):
+            continue
+        kept[name] = svc
+    out["services"] = kept
+    # Volumes only the kept services mount.
+    used = set()
+    for svc in kept.values():
+        for v in (svc or {}).get("volumes") or []:
+            if isinstance(v, dict):
+                used.update(v.keys())
+            elif isinstance(v, str):
+                used.add(v.split(":")[0].strip())
+    if isinstance(director.get("volumes"), dict):
+        out["volumes"] = {k: v for k, v in director["volumes"].items() if k in used}
+    return out
+
+
+def _sidecar_templates(cfg: Config) -> list[dict[str, str]]:
+    """Jail templates the authored bundle ships beside director.yml
+    (appjail.depends_on[].template), with their text, for the README."""
+    aj = cfg.metadata.appjail if isinstance(cfg.metadata.appjail, dict) else {}
     out = []
-    for c in cfg.metadata.choices:
-        opts = []
-        ordered = sorted(c.options, key=lambda o: o.id != c.default)
-        for o in ordered:
-            if o.id == c.default:
-                # The default is the file as it stands.
-                ct, et = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, None), cfg.example_env
-                compose_file, env_file = "compose.yaml", "example.env"
-            else:
-                ct, et = variants[(c.id, o.id)]
-                compose_file, env_file = choices_mod.variant_names(c, o)
-            # The AppJail side: the director's depends_on grows the engine's
-            # jail, and the .env takes the option's values with the host
-            # being that jail's name.
-            aj = dict(cfg.metadata.appjail) if isinstance(cfg.metadata.appjail, dict) else {}
+    for dep in (aj or {}).get("depends_on") or []:
+        tpl = dep.get("template") if isinstance(dep, dict) else None
+        if not tpl:
+            continue
+        path = Path.cwd() / tpl
+        if path.is_file():
+            out.append({"file": tpl, "text": path.read_text().rstrip("\n")})
+    return out
+
+
+def _stack_parts(cfg: Config) -> list[dict[str, str]]:
+    """The services of a stack with their images and roles (docs.services),
+    for the Parts table; a daemonless image links to its own page."""
+    if not cfg.compose_text:
+        return []
+    docs = cfg.metadata.docs if isinstance(cfg.metadata.docs, dict) else {}
+    roles = {str(k): str(v) for k, v in (docs.get("services") or {}).items()}
+    out = []
+    for name, svc in (cfg.compose_data.get("services") or {}).items():
+        img = str((svc or {}).get("image", ""))
+        repo = img.split(":")[0]
+        page = repo.split("/")[-1] if repo.startswith("ghcr.io/daemonless/") else ""
+        profiles = [str(p) for p in ((svc or {}).get("profiles") or [])]
+        out.append({"name": name, "image": img, "desc": roles.get(name, ""), "page": page,
+                    "when": "" if not profiles else "with " + ", ".join(profiles)})
+    return out
+
+
+def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str, Any]:
+    """The choices as the templates read them.
+
+    ``combos`` is one entry per way of answering every choice, the default
+    first, each with the files it needs in both renderings. ``tree`` nests
+    them choice by choice for the site's tabs: pick the first choice, then
+    the next inside it, and the leaf is the combination's files. The GitHub
+    README lists ``combos`` flat. ``choices`` is the declaration itself.
+    """
+    if not cfg.metadata.choices or not cfg.compose_text:
+        return {"choices": [], "combos": [], "tree": None}
+    import re as _re
+
+    import yaml  # lazy, as everywhere in this module: the wheel build imports it without yaml
+
+    variants = {choices_mod.variant_suffix(pairs): (ct, et) for pairs, ct, et in _choice_variants(cfg)}
+    engine_services = {ENGINE["service"] for ENGINE in choices_mod.ENGINES.values() if ENGINE.get("service")}
+    authored = _authored_director(cfg)
+    combos = []
+    for pairs in _combinations(cfg):
+        opts = [o for _, o in pairs]
+        suffix = choices_mod.variant_suffix(pairs)
+        is_default = suffix == ""
+        if is_default:
+            ct, et = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, None), cfg.example_env
+            compose_file, env_file = "compose.yaml", "example.env"
+        else:
+            ct, et = variants[suffix]
+            compose_file, env_file = f"compose.{suffix}.yaml", f"example.{suffix}.env"
+        # The AppJail side: the template director grows each engine's jail,
+        # the .env takes every option's values with the host being the jail's
+        # name.
+        aj = dict(cfg.metadata.appjail) if isinstance(cfg.metadata.appjail, dict) else {}
+        values: dict[str, str] = {}
+        asks = []
+        for o in opts:
             if o.director_dep:
                 aj["depends_on"] = [*(aj.get("depends_on") or []), o.director_dep]
-            values = dict(o.env)
+            values.update(o.env)
             values.update(o.env_appjail)
             for ln in o.env_lines:
                 k, _, rest = ln.partition("=")
                 values.setdefault(k, rest.partition("  #")[0].strip())
             for a in o.ask:
                 values.setdefault(a.name, a.default)
-            aj_env = []
-            seen = set()
-            for e in context_env:
-                item = dict(e)
-                if item["name"] in values:
-                    item["default"] = values[item["name"]]
-                    item.pop("placeholder", None)
-                seen.add(item["name"])
-                aj_env.append(item)
-            for k, v in values.items():
-                if k not in seen:
-                    # In .env for the director's own use (a volume device),
-                    # not something to hand the app's jail.
-                    aj_env.append({"name": k, "default": v, "env_only": True})
-            # What this option runs, in words: the services of its flattened
-            # compose with their images, the jails under director, and the
-            # host folders the data lands in. The page says this before any
-            # YAML.
-            import yaml  # lazy, as everywhere in this module: the wheel build imports it without yaml
-
-            parsed = (yaml.safe_load(ct) or {}).get("services") or {}
-            engine_services = {ENGINE["service"] for ENGINE in choices_mod.ENGINES.values() if ENGINE.get("service")}
-            parts, jails = [], []
-            for sname, svc in parsed.items():
-                img = str((svc or {}).get("image", ""))
-                short = img.split("/")[-1]
-                kind = "db" if sname in engine_services else "app"
-                parts.append({"name": sname, "image": short, "kind": kind})
-                jails.append({"name": sname.replace("-", "_") if kind == "app" else f"{cfg.image}_{sname}".replace("-", "_"), "image": short, "kind": kind})
-            if o.id == "external":
-                parts.append({"name": "your database", "image": "not run here", "kind": "none"})
-                jails.append({"name": "your database", "image": "not run here", "kind": "none"})
-            folders = []
-            for svc in parsed.values():
-                for v in (svc or {}).get("volumes") or []:
-                    src = v.split(":")[0] if isinstance(v, str) else str((v or {}).get("source", ""))
-                    if src.startswith("/") and src not in folders:
-                        folders.append(src)
+                asks.append({"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": a.values})
+        aj_env, seen = [], set()
+        for e in context_env:
+            item = dict(e)
+            if item["name"] in values:
+                item["default"] = values[item["name"]]
+                item.pop("placeholder", None)
+            seen.add(item["name"])
+            aj_env.append(item)
+        for k, v in values.items():
+            if k not in seen:
+                aj_env.append({"name": k, "default": v, "env_only": True})
+        # What this combination runs, in words, before any YAML. Compose
+        # references resolve the way compose would: the .env value, else the
+        # ${VAR:-fallback}, else nothing.
+        env_values: dict[str, str] = {}
+        for ln in et.splitlines():
+            k, sep, v = ln.partition("=")
+            if sep and k.strip() and not k.lstrip().startswith("#"):
+                env_values[k.strip()] = v.partition("  #")[0].strip()
+        resolve = lambda text: _re.sub(  # noqa: E731
+            r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}",
+            lambda m: env_values.get(m.group(1)) or (m.group(2) or ""), text)
+        parsed = (yaml.safe_load(ct) or {}).get("services") or {}
+        parts, jails = [], []
+        for sname, svc in parsed.items():
+            img = resolve(str((svc or {}).get("image", "")))
+            short = img.split("/")[-1]
+            kind = "db" if sname in engine_services else "app"
+            parts.append({"name": sname, "image": short, "kind": kind})
+            jails.append({"name": sname.replace("-", "_") if kind == "app" else f"{cfg.image}_{sname}".replace("-", "_"), "image": short, "kind": kind})
+        if any(o.id == "external" for o in opts):
+            parts.append({"name": "your database", "image": "not run here", "kind": "none"})
+            jails.append({"name": "your database", "image": "not run here", "kind": "none"})
+        folders = []
+        for svc in parsed.values():
+            for v in (svc or {}).get("volumes") or []:
+                if isinstance(v, str):
+                    bits = v.split(":")
+                    src, ro = resolve(bits[0]), len(bits) > 2 and "ro" in bits[2].split(",")
+                else:
+                    src, ro = resolve(str((v or {}).get("source", ""))), bool((v or {}).get("read_only"))
+                if ro or not src.startswith("/") or src.startswith(("/etc/", "/dev/", "/var/run/", "/usr/")):
+                    continue
+                if src not in folders:
+                    folders.append(src)
+        for o in opts:
             for ln in o.env_lines:
                 k, _, v = ln.partition("=")
                 if k.endswith("_LOCATION") and v and v not in folders:
                     folders.append(v)
-            folders = [f.replace("/containers", "@CONTAINER_CONFIG_ROOT@") for f in folders]
-            opts.append({
-                "id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default,
-                "parts": parts, "jails": jails, "folders": folders,
-                "appjail": aj, "appjail_env": aj_env,
-                "jail_template_file": o.jail_template_file, "jail_template": o.jail_template,
-                "profile": o.profile, "env": o.env,
-                "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": a.values} for a in o.ask],
-                "compose_file": compose_file, "env_file": env_file,
-                "compose_text": ct, "example_env": et,
-                "compose_text_site": _site_placeholders(ct),
-                "example_env_site": _site_placeholders(et, env_file=True),
-                "zip": f"{cfg.image}-podman" + ("" if o.id == c.default else f"-{o.id}"),
-            })
-        out.append({"id": c.id, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
-    return out
+        folders = [f.replace("/containers", "@CONTAINER_CONFIG_ROOT@") for f in folders]
+        director_text = director_env_text = ""
+        if authored is not None:
+            sliced = _director_for_option(authored, cfg, None if is_default else opts)
+            director_text = _render_director_override(sliced)
+            director_env_text = _render_override_env(sliced, {"name": cfg.image, "env": aj_env})
+            jails = [{"name": str((svc or {}).get("name", n)), "image": next((p["image"] for p in parts if p["name"] == n), ""), "kind": "app"}
+                     for n, svc in sliced["services"].items()]
+        tpl = next((o for o in opts if o.jail_template_file), None)
+        combos.append({
+            "id": suffix or "default", "default": is_default,
+            "selections": [{"choice": c.id, "choice_label": c.label, "option": o.id, "label": o.label, "default": o.id == c.default} for c, o in pairs],
+            "label": ", ".join(o.label for _, o in pairs),
+            "doc": " ".join(o.doc for _, o in pairs if o.doc),
+            "parts": parts, "jails": jails, "folders": folders,
+            "appjail": aj, "appjail_env": aj_env,
+            "director_text": director_text, "director_env_text": director_env_text,
+            "jail_template_file": tpl.jail_template_file if tpl else "", "jail_template": tpl.jail_template if tpl else "",
+            "ask": asks,
+            "compose_file": compose_file, "env_file": env_file,
+            "compose_text": ct, "example_env": et,
+            "compose_text_site": _site_placeholders(ct),
+            "example_env_site": _site_placeholders(et, env_file=True),
+            "zip": f"{cfg.image}-podman" + ("" if is_default else "-" + suffix.replace(".", "-")),
+        })
+    by_key = {tuple(sel["option"] for sel in cb["selections"]): cb for cb in combos}
+
+    def tree(level: int, picked: tuple) -> dict | None:
+        cs = cfg.metadata.choices
+        if level >= len(cs):
+            return None
+        c = cs[level]
+        nodes = []
+        for o in sorted(c.options, key=lambda o: o.id != c.default):
+            key = (*picked, o.id)
+            nodes.append({"id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default,
+                          "children": tree(level + 1, key),
+                          "combo": by_key.get(key) if level == len(cs) - 1 else None})
+        return {"id": c.id, "label": c.label, "doc": c.doc, "options": nodes}
+
+    declared = [{"id": c.id, "label": c.label, "doc": c.doc, "default": c.default,
+                 "options": [{"id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default} for o in c.options]}
+                for c in cfg.metadata.choices]
+    return {"choices": declared, "combos": combos, "tree": tree(0, ())}
 
 
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
@@ -640,7 +775,15 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             "target": tgt
         })
 
-    context["choices"] = _choice_context(cfg, context["env"])
+    cc = _choice_context(cfg, context["env"])
+    context["choices"], context["combos"], context["choice_tree"] = cc["choices"], cc["combos"], cc["tree"]
+    # A stack whose author wrote the whole director: the README shows that,
+    # not the one-service template, with the jail templates it ships.
+    authored = _authored_director(cfg)
+    context["director_override_text"] = _render_director_override(authored) if authored else ""
+    context["director_override_env"] = _render_override_env(authored, context) if authored else ""
+    context["sidecar_templates"] = _sidecar_templates(cfg)
+    context["stack_parts"] = _stack_parts(cfg)
     return context
 
 
@@ -723,7 +866,10 @@ def generate_appjail_files(
     if aj_meta:
         d = aj_meta.get("director")
         if isinstance(d, dict) and d.get("services"):
-            director_override = d
+            # The bundle is the default answer to every choice: a jail behind
+            # a profile (immich's public proxy) stays out, as its service does
+            # under `podman-compose up` with no --profile.
+            director_override = _director_for_option(d, cfg, None)
 
     # Every bundle file must end in exactly one newline. AppJail's Makejail
     # parser is line-based and silently DROPS a final line with no trailing
@@ -881,18 +1027,10 @@ def render_generated(
                     f"README.j2 failed to render: included template '{e.name}' not found"
                 )
 
-    # Stack choices: the flattened compose + .env per non-default option, so
-    # whoever copies files instead of running fjord needs no flag.
-    if cfg.metadata.choices and cfg.compose_text:
-        try:
-            for c, o, compose_text, env_text in _choice_variants(cfg):
-                compose_file, env_file = choices_mod.variant_names(c, o)
-                head = f"# Generated by dbuild from compose.yaml: {c.label} = {o.label}. Edit compose.yaml, not this.\n"
-                outputs[compose_file] = head + compose_text
-                outputs[env_file] = head + env_text
-        except ValueError as e:
-            errors.append(f"choices: {e}")
-
+    # Stack choices render into the README (a section or a form per
+    # combination, each with its zip on the site); nothing lands on disk for
+    # them. Six generated files in a repo's root for two choices was clutter
+    # nobody copied from.
     # Containerfiles — repo-only loader (local includes, no bundled fallback).
     for j2_path in sorted(base.glob("Containerfile*.j2")):
         out_name = j2_path.name.replace(".j2", "")

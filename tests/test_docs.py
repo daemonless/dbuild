@@ -351,8 +351,8 @@ x-daemonless:
       label: Search
       default: "off"
       options:
-        "off": { label: Off }
-        "on":  { label: On, profile: search, env: { TODO_SEARCH: "true" } }
+        "off": { label: "Off" }
+        "on":  { label: "On", profile: search, env: { TODO_SEARCH: "true" } }
 services:
   todo:
     image: ghcr.io/daemonless/todo:latest
@@ -375,6 +375,15 @@ services:
 CHOICES_ENV = "TZ=UTC\nTODO_DB_TYPE=sqlite\n"
 
 
+def _combo(ctx, **picks):
+    """The combination answering the given choices as picked, the rest default."""
+    for cb in ctx["combos"]:
+        sel = {s["choice"]: s["option"] for s in cb["selections"]}
+        if all(sel[k] == v for k, v in picks.items()) and all(s["default"] for s in cb["selections"] if s["choice"] not in picks):
+            return cb
+    raise AssertionError(f"no combination for {picks}")
+
+
 class TestStackChoices(unittest.TestCase):
     def _render(self, tmp: Path):
         (tmp / "compose.yaml").write_text(CHOICES_COMPOSE)
@@ -382,7 +391,14 @@ class TestStackChoices(unittest.TestCase):
         (tmp / "Containerfile.j2").write_text(CONTAINERFILE_J2)
         with _chdir(tmp):
             cfg = dbuild_config.load(tmp)
+            ctx = docs._enrich_metadata(cfg, None)
             outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), tmp)
+        # Nothing but the README is written for choices; the combinations'
+        # files live in the context, keyed by name here for the asserts.
+        self.assertEqual([k for k in outputs if k.startswith(("compose.", "example."))], [])
+        for cb in ctx["combos"]:
+            outputs[cb["compose_file"]] = cb["compose_text"]
+            outputs[cb["env_file"]] = cb["example_env"]
         return outputs, errors
 
     def test_database_services_come_from_dbuild(self):
@@ -424,14 +440,17 @@ class TestStackChoices(unittest.TestCase):
             (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
             with _chdir(t):
                 ctx = docs._enrich_metadata(dbuild_config.load(t), None)
-        db = next(c for c in ctx["choices"] if c["id"] == "database")
-        pg = next(o for o in db["options"] if o["id"] == "postgres")
+        pg = _combo(ctx, database="postgres")
         self.assertEqual([(p["name"], p["kind"]) for p in pg["parts"]], [("todo", "app"), ("postgres", "db")])
         self.assertEqual(pg["parts"][1]["image"], "postgres:17")
         self.assertTrue(pg["jails"][1]["name"].endswith("_postgres"), pg["jails"])  # <image>_postgres
         self.assertIn("@CONTAINER_CONFIG_ROOT@/todo/postgres", pg["folders"])
-        ext = next(o for o in db["options"] if o["id"] == "external")
+        ext = _combo(ctx, database="external")
         self.assertEqual(ext["parts"][-1]["kind"], "none")
+        both = _combo(ctx, database="postgres", search="on")
+        self.assertIn("  meili:", both["compose_text"], "two choices answered at once, in one file")
+        self.assertIn("  postgres:", both["compose_text"])
+        self.assertEqual(both["compose_file"], "compose.database-postgres.search-on.yaml")
 
     def test_a_part_choice_switches_a_profile(self):
         with tempfile.TemporaryDirectory() as d:
@@ -446,7 +465,7 @@ class TestStackChoices(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             outputs, _ = self._render(Path(d))
         readme = outputs["README.md"]
-        i_sql, i_pg, i_ext = (readme.index(h) for h in ("#### SQLite (default)", "#### PostgreSQL", "#### Your own"))
+        i_sql, i_pg, i_ext = (readme.index(h) for h in ("#### SQLite, Off (default)", "#### PostgreSQL, Off", "#### Your own, Off"))
         self.assertTrue(i_sql < i_pg < i_ext)
         self.assertIn("fill in Kind, Host, User, Password, Database", readme)
 
@@ -480,7 +499,7 @@ class TestStackChoices(unittest.TestCase):
         self.assertEqual(errors, [])
         readme = outputs["README.md"]
         aj = readme[readme.index("### AppJail Director"):]
-        pg = aj[aj.index("#### PostgreSQL"):aj.index("#### MariaDB")]
+        pg = aj[aj.index("#### PostgreSQL, Off"):aj.index("#### MariaDB, Off")]
         self.assertIn("  todo-postgres:\n    name: todo_postgres\n    priority: 10", pg, "the engine's jail starts first")
         self.assertIn("POSTGRES_PASSWORD: !ENV '${TODO_DB_PASSWORD}'", pg, "reads the app's own variables")
         self.assertIn("TODO_DB_HOST=todo_postgres", pg, "the host is the jail's name")
@@ -488,5 +507,231 @@ class TestStackChoices(unittest.TestCase):
         self.assertIn("sysvshm: new", pg, "the jail template PostgreSQL needs ships with it")
         self.assertIn("device: !ENV '${DATABASE_LOCATION}'", pg)
         self.assertNotIn("- DATABASE_LOCATION: !ENV", pg, "a device variable is not handed to the app's jail")
-        sq = aj[aj.index("#### SQLite (default)"):aj.index("#### PostgreSQL")]
+        sq = aj[aj.index("#### SQLite, Off (default)"):aj.index("#### PostgreSQL, Off")]
         self.assertNotIn("postgres", sq)
+
+
+# ── A stack with an authored director and part choices (immich-shaped) ──
+
+STACK_COMPOSE = """\
+name: photos
+x-daemonless:
+  title: "Photos"
+  description: "A photo stack."
+  category: "Photos & Media"
+  icon: ":test:"
+  upstream_url: "https://example.com"
+  user: "bsd"
+  type: stack
+  choices:
+    machine_learning:
+      label: Machine learning
+      doc: Faces and search. Needs memory.
+      default: "on"
+      options:
+        "on":  { label: "On" }
+        "off": { label: "Off", drop: [ml], env: { ML_ENABLED: "false" } }
+    public_proxy:
+      label: Public sharing
+      default: "off"
+      options:
+        "off": { label: "Off" }
+        "on":  { label: "On", profile: proxy }
+  docs:
+    services:
+      server: "Web UI and API"
+      ml: "Faces and search"
+      proxy: "Public links"
+    env:
+      DB_PASSWORD: "Database password"
+  appjail:
+    depends_on:
+      - name: db
+        template: db-template.conf
+    director:
+      options:
+        - alias:
+      services:
+        server:
+          name: photos_server
+          priority: 100
+          options:
+            - from: ghcr.io/daemonless/photos-server:latest
+          oci:
+            environment:
+              - ML_ENABLED: "!ENV '${ML_ENABLED}'"
+          volumes:
+            - data: /data
+        ml:
+          name: photos_ml
+          options:
+            - from: ghcr.io/daemonless/photos-ml:latest
+          volumes:
+            - cache: /cache
+        proxy:
+          name: photos_proxy
+          options:
+            - from: ghcr.io/daemonless/photos-proxy:latest
+        db:
+          name: photos_db
+          options:
+            - from: ghcr.io/daemonless/postgres:17
+            - template: "!ENV '${PWD}/db-template.conf'"
+      volumes:
+        data:
+          device: "!ENV '${UPLOAD_LOCATION}'"
+        cache:
+          device: "!ENV '${CACHE_LOCATION}'"
+services:
+  server:
+    image: ghcr.io/daemonless/photos-server:latest
+    network_mode: host
+    environment:
+      ML_ENABLED: ${ML_ENABLED:-true}
+    depends_on:
+      - db
+      - ml
+    volumes:
+      - ${UPLOAD_LOCATION}:/data
+  ml:
+    image: ghcr.io/daemonless/photos-ml:latest
+    network_mode: host
+    volumes:
+      - ${CACHE_LOCATION}:/cache
+  proxy:
+    image: ghcr.io/daemonless/photos-proxy:latest
+    network_mode: host
+    profiles: [proxy]
+  db:
+    image: ghcr.io/daemonless/postgres:17
+    network_mode: host
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+"""
+
+STACK_ENV = "UPLOAD_LOCATION=/containers/photos/library\nCACHE_LOCATION=/containers/photos/cache\nDB_PASSWORD=change-me\n"
+
+
+class TestStackWithAuthoredDirector(unittest.TestCase):
+    def _render(self, tmp: Path):
+        (tmp / "compose.yaml").write_text(STACK_COMPOSE)
+        (tmp / "example.env").write_text(STACK_ENV)
+        (tmp / "db-template.conf").write_text("sysvshm: new\n")
+        with _chdir(tmp):
+            cfg = dbuild_config.load(tmp)
+            ctx = docs._enrich_metadata(cfg, None)
+            outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), tmp)
+        self.assertEqual([k for k in outputs if k.startswith(("compose.", "example."))], [], "choices write nothing to disk")
+        for cb in ctx["combos"]:
+            outputs[cb["compose_file"]] = cb["compose_text"]
+            outputs[cb["env_file"]] = cb["example_env"]
+        return ctx, outputs, errors
+
+    def test_a_part_can_be_dropped_and_depends_on_follows(self):
+        with tempfile.TemporaryDirectory() as d:
+            ctx, outputs, errors = self._render(Path(d))
+        self.assertEqual(errors, [])
+        off = outputs["compose.machine_learning-off.yaml"]
+        self.assertNotIn("\n  ml:", off)
+        self.assertIn("    depends_on:\n      - db\n", off, "the dropped service left the others' depends_on")
+        self.assertNotIn("- ml", off)
+        self.assertIn("ML_ENABLED=false", outputs["example.machine_learning-off.env"])
+        on = outputs["compose.public_proxy-on.yaml"]
+        self.assertIn("\n  proxy:", on)
+        self.assertNotIn("profiles", on)
+
+    def test_authored_director_is_sliced_per_option(self):
+        with tempfile.TemporaryDirectory() as d:
+            ctx, outputs, _ = self._render(Path(d))
+        off = _combo(ctx, machine_learning="off")
+        self.assertNotIn("photos_ml", off["director_text"])
+        self.assertNotIn("cache:", off["director_text"], "a volume only the dropped jail used is gone too")
+        self.assertIn("photos_db", off["director_text"])
+        self.assertIn("ML_ENABLED=false", off["director_env_text"])
+        on = _combo(ctx, machine_learning="on")
+        self.assertIn("photos_ml", on["director_text"])
+        both = _combo(ctx, machine_learning="off", public_proxy="on")
+        self.assertEqual([j["name"] for j in both["jails"]], ["photos_server", "photos_proxy", "photos_db"])
+        self.assertNotIn("photos_proxy", on["director_text"], "a profiled jail is out unless its option is picked")
+        self.assertEqual([j["name"] for j in off["jails"]], ["photos_server", "photos_db"])
+        self.assertIn("priority: 100", ctx["director_override_text"], "the author's director, verbatim, for the stack")
+        self.assertEqual(ctx["sidecar_templates"][0]["file"], "db-template.conf")
+
+    def test_readme_has_parts_and_the_authored_director(self):
+        with tempfile.TemporaryDirectory() as d:
+            ctx, outputs, _ = self._render(Path(d))
+        readme = outputs["README.md"]
+        self.assertIn("## Parts", readme)
+        self.assertIn("| **ml** | `ghcr.io/daemonless/photos-ml:latest` | Faces and search |", readme)
+        self.assertIn("| **proxy** | `ghcr.io/daemonless/photos-proxy:latest` | Public links (with proxy) |", readme)
+        self.assertNotIn("## Version Tags", readme, "a stack has no tags of its own")
+        aj = readme[readme.index("### AppJail Director"):]
+        self.assertIn("priority: 100", aj)
+        self.assertIn("**db-template.conf**", aj)
+        self.assertIn("sysvshm: new", aj)
+
+    def test_the_line_resolves_tags_and_skips_the_clock_mount(self):
+        compose = STACK_COMPOSE.replace("    image: ghcr.io/daemonless/photos-server:latest\n    network_mode: host\n",
+                                        "    image: ghcr.io/daemonless/photos-server:${TAG:-latest}\n    network_mode: host\n", 1)
+        compose = compose.replace("      - ${UPLOAD_LOCATION}:/data\n", "      - ${UPLOAD_LOCATION}:/data\n      - /etc/localtime:/etc/localtime:ro\n")
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(compose)
+            (t / "example.env").write_text(STACK_ENV)
+            (t / "db-template.conf").write_text("sysvshm: new\n")
+            with _chdir(t):
+                ctx = docs._enrich_metadata(dbuild_config.load(t), None)
+        on = ctx["combos"][0]
+        self.assertTrue(on["default"])
+        self.assertEqual(on["parts"][0]["image"], "photos-server:latest", "the compose fallback resolves")
+        self.assertEqual(on["folders"], ["@CONTAINER_CONFIG_ROOT@/photos/library", "@CONTAINER_CONFIG_ROOT@/photos/cache"])
+
+    def test_bundle_on_disk_is_the_default_answer(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(STACK_COMPOSE)
+            (t / "example.env").write_text(STACK_ENV)
+            (t / "db-template.conf").write_text("sysvshm: new\n")
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                docs.generate_appjail_files(cfg, t / "bundle")
+            director = (t / "bundle" / "appjail-director.yml").read_text()
+        self.assertIn("photos_ml", director, "a part on by default is in")
+        self.assertNotIn("photos_proxy", director, "a part behind a profile is out of the default bundle")
+        self.assertIn("photos_db", director)
+
+    def test_choices_for_fjord(self):
+        from dbuild import choices as choices_mod
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(STACK_COMPOSE)
+            (t / "example.env").write_text(STACK_ENV)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+        ml, proxy = data["choices"]
+        off = next(o for o in ml["options"] if o["id"] == "off")
+        self.assertEqual(off["drop"], ["ml"])
+        self.assertEqual(off["env"], {"ML_ENABLED": "false"})
+        on = next(o for o in proxy["options"] if o["id"] == "on")
+        self.assertTrue(on["services"].startswith("  proxy:\n    image: ghcr.io/daemonless/photos-proxy:latest\n"), on["services"])
+        self.assertNotIn("profiles", on["services"], "the profile line is dbuild's business, not the consumer's")
+
+    def test_choices_for_fjord_database_kind(self):
+        from dbuild import choices as choices_mod
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(CHOICES_COMPOSE)
+            (t / "example.env").write_text(CHOICES_ENV)
+            (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+        db = data["choices"][0]
+        pg = next(o for o in db["options"] if o["id"] == "postgres")
+        self.assertIn("  postgres:\n    image: ghcr.io/daemonless/postgres:17", pg["services"])
+        self.assertEqual(pg["depends_on"], {"todo": ["postgres"]})
+        self.assertEqual(pg["secrets"], ["TODO_DB_PASSWORD"])
+        self.assertEqual(pg["defaults"]["DATABASE_LOCATION"], "{{base}}/{{stack}}/postgres", "the folder follows the stack, not the app")
+        ext = next(o for o in db["options"] if o["id"] == "external")
+        self.assertEqual([a["name"] for a in ext["ask"]][:2], ["TODO_DB_TYPE", "TODO_DB_HOST"])

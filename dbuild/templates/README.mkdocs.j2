@@ -4,6 +4,62 @@
     the data lands in. Plain words; markdown, not a raw HTML block (a block
     inside a tab gets paragraph-wrapped and magiclink turns a placeholder's
     @ into a GitHub mention; a code span keeps it as text). #}
+{#- The choices as one form: a card with a row of pills per choice, and
+    under it one block of files per combination, all but the default hidden.
+    deploy-choices.js on the site shows the block that matches the pills and
+    keeps Podman and AppJail on the same answers. Markdown inside the HTML
+    (md_in_html) so the fences keep their zip attributes. #}
+{%- macro choice_form(runtime) -%}
+<div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}" markdown>
+{% for c in choices %}
+
+**{{ c.label }}** {{ c.doc }}
+{: .choice data-choice="{{ c.id }}" }
+
+<div class="opts" data-choice="{{ c.id }}">{% for o in c.options %}<button type="button" data-option="{{ o.id }}"{% if o.default %} data-default aria-pressed="true"{% else %} aria-pressed="false"{% endif %}{% if o.doc %} title="{{ o.doc | replace('"', "'") }}"{% endif %}>{{ o.label }}</button>{% endfor %}</div>
+{% endfor %}
+
+</div>
+{% for cb in combos %}
+
+<div class="deploy-combo" data-key="{% for sel in cb.selections %}{{ sel.choice }}={{ sel.option }}{{ ";" if not loop.last }}{% endfor %}"{% if not cb.default %} hidden{% endif %} markdown>
+
+{{ combo_files(cb, runtime) }}
+
+</div>
+{% endfor %}
+{%- endmacro %}
+
+{%- macro combo_files(cb, runtime) -%}
+{% if runtime == "podman" %}
+{{ you_get(cb, cb.parts, "container") }}
+{% if cb.doc %}
+{{ cb.doc }}
+{% endif %}
+**1.** Save as `.env`{% if cb.ask %} and fill in {{ cb.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
+
+```env { data-zip-bundle="{{ cb.zip }}" data-zip-filename=".env" }
+{{ cb.example_env_site | trim }}
+```
+
+**2.** Save as `compose.yaml`:
+
+```yaml { data-zip-bundle="{{ cb.zip }}" data-zip-filename="compose.yaml" }
+{{ cb.compose_text_site | trim }}
+```
+
+Then run `podman-compose up -d`.
+{% else %}
+{{ you_get(cb, cb.jails, "jail") }}
+{% if cb.doc %}
+{{ cb.doc }}
+{% endif %}
+{{ appjail_director_snippet(port_var, cb) }}
+
+Save the files above, then run `appjail-director up`.
+{% endif %}
+{%- endmacro %}
+
 {%- macro you_get(o, parts, unit) -%}
 {%- set imgs = [] -%}
 {%- for p in parts %}{% if p.kind == "none" %}{% set _ = imgs.append("your own " ~ p.name | replace("your database", "database")) %}{% else %}{% set _ = imgs.append("`" ~ p.image ~ "`") %}{% endif %}{% endfor -%}
@@ -73,7 +129,9 @@ description: "{{ description }} Built natively for FreeBSD with s6 supervision, 
 {%- if ports %}
 | :material-lan-connect: **Port** | `{{ ports[0].port }}` |
 {%- endif %}
+{%- if variants %}
 | :material-docker: **Registry** | [`{{ registry }}/{{ name }}`](https://github.com/daemonless/{{ name }}/pkgs/container/{{ name }}) |
+{%- endif %}
 | :fontawesome-brands-github: **Daemonless** | [daemonless/{{ name }}](https://github.com/daemonless/{{ name }}) |
 | :material-code-tags: **Source** | [{{ upstream_url | replace('https://github.com/', '') | replace('https://', '') | truncate(40, true, '…') }}]({{ upstream_url }}) |
 {%- if web_url %}
@@ -100,32 +158,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
     (Bastille) would start the app without it. #}
 === ":podman-podman: Podman"
 {% if choices %}
-{% for c in choices %}
-    **{{ c.label }}** {{ c.doc }}
-    {: .deploy-choice }
-{% for o in c.options %}
-    === "{{ o.label }}"
-
-        {{ you_get(o, o.parts, "container") | indent(8) }}
-
-{% if o.doc %}
-        {{ o.doc }}
-{% endif %}
-        **1.** Save as `.env`{% if o.ask %} and fill in {{ o.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
-
-        ```env { data-zip-bundle="{{ o.zip }}" data-zip-filename=".env" }
-        {{ o.example_env_site | trim | indent(8) }}
-        ```
-
-        **2.** Save as `compose.yaml`:
-
-        ```yaml { data-zip-bundle="{{ o.zip }}" data-zip-filename="compose.yaml" }
-        {{ o.compose_text_site | trim | indent(8) }}
-        ```
-
-        Then run `podman-compose up -d`.
-{% endfor %}
-{% endfor %}
+{{ choice_form("podman") | indent(4, first=True) }}
 {% elif example_env %}
     **1.** Save as `.env` and fill in what is empty:
 
@@ -144,22 +177,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {% endif %}
 {% if appjail_enabled and choices %}
 === ":appjail-appjail: AppJail"
-{% for c in choices %}
-    **{{ c.label }}** {{ c.doc }}
-    {: .deploy-choice }
-{% for o in c.options %}
-    === "{{ o.label }}"
-
-        {{ you_get(o, o.jails, "jail") | indent(8) }}
-
-{% if o.doc %}
-        {{ o.doc }}
-{% endif %}
-        {{ appjail_director_snippet(port_var, o) | indent(8) }}
-
-        Save the files above, then run `appjail-director up`.
-{% endfor %}
-{% endfor %}
+{{ choice_form("appjail") | indent(4, first=True) }}
 {% elif appjail_enabled and appjail_sidecar %}
 === ":appjail-appjail: AppJail"
 
