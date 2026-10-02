@@ -474,3 +474,86 @@ def variant_names(choice: Choice, option: Option) -> tuple[str, str]:
     """(compose file, env file) for a non-default option."""
     suffix = f"{choice.id}-{option.id}"
     return f"compose.{suffix}.yaml", f"example.{suffix}.env"
+
+
+# --- for fjord ---------------------------------------------------------
+
+def service_block(text: str, name: str) -> str:
+    """One service's block as written in the compose (two-space indent under
+    ``services:``), its ``profiles:`` lines left out. What a consumer adds
+    back when the option that owns the service is picked."""
+    out: list[str] = []
+    in_services = False
+    in_block = False
+    skipping_profiles = False
+    for line in text.splitlines():
+        top = bool(line) and not line[0].isspace() and not line.startswith("#")
+        if top:
+            if in_block:
+                break
+            in_services = line.startswith("services:")
+            continue
+        if not in_services:
+            continue
+        m = _SERVICE_RE.match(line)
+        if m:
+            if in_block:
+                break
+            in_block = m.group(1) == name
+            if in_block:
+                out.append(line)
+            continue
+        if not in_block:
+            continue
+        stripped = line.strip()
+        if re.match(r"^profiles:\s*(\[.*\])?\s*$", stripped):
+            skipping_profiles = stripped.endswith("profiles:")
+            continue
+        if skipping_profiles:
+            if stripped.startswith("- "):
+                continue
+            skipping_profiles = False
+        out.append(line)
+    return "\n".join(out).rstrip("\n") + ("\n" if out else "")
+
+
+def to_fjord(choices: list[Choice], compose_text: str, compose_data: dict[str, Any]) -> dict[str, Any]:
+    """The choices as fjord's catalog carries them (x-fjord.choices): per
+    option, the env it sets, the services to add (its own block text, or the
+    one dbuild supplies), the services to drop, the values to ask for, the
+    defaults the extra services need and the secrets to make up."""
+    services = compose_data.get("services") or {}
+    app = next(iter(services), "")
+    out = []
+    for c in choices:
+        opts = []
+        for o in c.options:
+            add = o.service_yaml
+            depends: dict[str, list[str]] = {}
+            if o.profile:
+                for name, svc in services.items():
+                    if o.profile in [str(p) for p in ((svc or {}).get("profiles") or [])]:
+                        add += service_block(compose_text, name)
+            if o.service_yaml and app:
+                depends[app] = [_SERVICE_RE.match(o.service_yaml.splitlines()[0]).group(1)]
+            defaults, secrets = {}, []
+            for ln in o.env_lines:
+                k, _, rest = ln.partition("=")
+                v = rest.partition("  #")[0].strip()
+                if "set one" in rest:
+                    secrets.append(k)
+                else:
+                    # A data folder belongs to the stack, not the app: two
+                    # installs of one app must not share a postgres directory.
+                    # fjord expands {{base}} and {{stack}} at install.
+                    if app and v.startswith(f"/containers/{app}/"):
+                        v = "{{base}}/{{stack}}/" + v[len(f"/containers/{app}/"):]
+                    defaults[k] = v
+            opts.append({
+                "id": o.id, "label": o.label, "doc": o.doc,
+                "env": dict(o.env), "defaults": defaults, "secrets": secrets,
+                "services": add, "depends_on": depends, "drop": list(o.drop),
+                "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": dict(a.values)} for a in o.ask],
+            })
+        out.append({"id": c.id, "kind": c.kind, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
+    return {"choices": out}

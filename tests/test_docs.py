@@ -699,3 +699,39 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         self.assertIn("photos_ml", director, "a part on by default is in")
         self.assertNotIn("photos_proxy", director, "a part behind a profile is out of the default bundle")
         self.assertIn("photos_db", director)
+
+    def test_choices_for_fjord(self):
+        from dbuild import choices as choices_mod
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(STACK_COMPOSE)
+            (t / "example.env").write_text(STACK_ENV)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+        ml, proxy = data["choices"]
+        off = next(o for o in ml["options"] if o["id"] == "off")
+        self.assertEqual(off["drop"], ["ml"])
+        self.assertEqual(off["env"], {"ML_ENABLED": "false"})
+        on = next(o for o in proxy["options"] if o["id"] == "on")
+        self.assertTrue(on["services"].startswith("  proxy:\n    image: ghcr.io/daemonless/photos-proxy:latest\n"), on["services"])
+        self.assertNotIn("profiles", on["services"], "the profile line is dbuild's business, not the consumer's")
+
+    def test_choices_for_fjord_database_kind(self):
+        from dbuild import choices as choices_mod
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(CHOICES_COMPOSE)
+            (t / "example.env").write_text(CHOICES_ENV)
+            (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+        db = data["choices"][0]
+        pg = next(o for o in db["options"] if o["id"] == "postgres")
+        self.assertIn("  postgres:\n    image: ghcr.io/daemonless/postgres:17", pg["services"])
+        self.assertEqual(pg["depends_on"], {"todo": ["postgres"]})
+        self.assertEqual(pg["secrets"], ["TODO_DB_PASSWORD"])
+        self.assertEqual(pg["defaults"]["DATABASE_LOCATION"], "{{base}}/{{stack}}/postgres", "the folder follows the stack, not the app")
+        ext = next(o for o in db["options"] if o["id"] == "external")
+        self.assertEqual([a["name"] for a in ext["ask"]][:2], ["TODO_DB_TYPE", "TODO_DB_HOST"])

@@ -285,6 +285,18 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- choices --
+    choices_parser = sub.add_parser(
+        "choices",
+        help="print the stack's choices (x-daemonless.choices) as JSON, for fjord's catalog",
+        description=(
+            "The choices resolved for a consumer: per option the env it sets, the "
+            "services to add or drop, the values to ask for, the defaults and the "
+            "secrets the extra services need. Empty when the compose declares none."
+        ),
+    )
+    choices_parser.add_argument("--out", default="-", metavar="FILE", help="write here instead of stdout")
+
     # -- appjail-bundle --
     appjail_parser = sub.add_parser(
         "appjail-bundle",
@@ -597,6 +609,20 @@ def _dispatch_ci_run(cfg: Config, args: argparse.Namespace) -> int:
     return rc if rc else 0
 
 
+def _dispatch_choices(cfg: Config, args: argparse.Namespace) -> int:
+    """Print the choices as fjord's catalog carries them."""
+    import json
+
+    from dbuild import choices as choices_mod
+    data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+    text = json.dumps(data, indent=2) + "\n"
+    if args.out == "-":
+        sys.stdout.write(text)
+    else:
+        Path(args.out).write_text(text)
+    return 0
+
+
 def _dispatch_appjail_bundle(cfg: Config, args: argparse.Namespace) -> int:
     """Render the AppJail deploy bundle into --out (nothing if appjail disabled)."""
     from pathlib import Path
@@ -642,6 +668,7 @@ _DISPATCHERS: dict[str, callable] = {
     "generate": _dispatch_docs,
     "docs": _dispatch_docs,
     "appjail-bundle": _dispatch_appjail_bundle,
+    "choices": _dispatch_choices,
 }
 
 # Commands that run without loading project config
