@@ -733,5 +733,9 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         self.assertEqual(pg["depends_on"], {"todo": ["postgres"]})
         self.assertEqual(pg["secrets"], ["TODO_DB_PASSWORD"])
         self.assertEqual(pg["defaults"]["DATABASE_LOCATION"], "{{base}}/{{stack}}/postgres", "the folder follows the stack, not the app")
+        # The host variable names the service on a compose network; fjord
+        # needs the map to say 127.0.0.1 when the stack is on host networking.
+        self.assertEqual(pg["hostnames"], {"postgres": "TODO_DB_HOST"})
+        self.assertEqual(pg["env"]["TODO_DB_HOST"], "postgres")
         ext = next(o for o in db["options"] if o["id"] == "external")
         self.assertEqual([a["name"] for a in ext["ask"]][:2], ["TODO_DB_TYPE", "TODO_DB_HOST"])
