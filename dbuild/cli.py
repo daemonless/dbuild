@@ -613,8 +613,11 @@ def _dispatch_choices(cfg: Config, args: argparse.Namespace) -> int:
     """Print the choices as fjord's catalog carries them."""
     import json
 
+    from dbuild import appjail_choices
     from dbuild import choices as choices_mod
     data = choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)
+    # Each option's AppJail form, so fjord can run a non-default pick there.
+    data = appjail_choices.merge_into(data, appjail_choices.option_forms(cfg))
     text = json.dumps(data, indent=2) + "\n"
     if args.out == "-":
         sys.stdout.write(text)
