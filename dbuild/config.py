@@ -237,6 +237,12 @@ class AppTestConfig:
     https: bool = field(default=False, metadata={
         "desc": "Use HTTPS for health and screenshot checks",
     })
+    secure_context: bool = field(default=False, metadata={
+        "desc": "Open the screenshot page as a secure context over plain http. "
+                "For apps that need SharedArrayBuffer or other secure-only browser "
+                "APIs (sqlite in the browser, e.g. Actual); the container's "
+                "`http://<ip>:<port>` is not one otherwise.",
+    })
     compose: bool = field(default=False, metadata={
         "desc": "Start the service via `compose.yaml` instead of `podman run`",
     })
@@ -779,6 +785,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
     ssim_threshold = cit.get("ssim_threshold")
     edge_threshold = cit.get("edge_threshold")
     https = cit.get("https", False)
+    secure_context = cit.get("secure_context", False)
     compose = cit.get("compose", False)
     puid = cit.get("puid", True)
     puid_ignore = cit.get("puid_ignore") or []
@@ -846,6 +853,7 @@ def _parse_test_config(data: dict[str, Any], compose_data: dict[str, Any] | None
         ssim_threshold=ssim_threshold,
         edge_threshold=edge_threshold,
         https=https,
+        secure_context=secure_context,
         compose=compose,
         puid=puid,
         puid_ignore=puid_ignore,

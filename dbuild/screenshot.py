@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from urllib.parse import urlsplit
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -22,7 +23,16 @@ CHROMEDRIVER_BIN = os.environ.get("CHROMEDRIVER_BIN", "/usr/local/bin/chromedriv
 WINDOW_SIZE = os.environ.get("SCREENSHOT_SIZE", "1920,1080")
 
 
-def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0) -> bool:
+def secure_origin(url: str) -> str:
+    """The origin to treat as secure for url: scheme://host:port, or "" for
+    one that already is (https) or that cannot be parsed."""
+    u = urlsplit(url)
+    if u.scheme != "http" or not u.netloc:
+        return ""
+    return f"{u.scheme}://{u.netloc}"
+
+
+def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0, secure_context: bool = False) -> bool:
     """Capture a screenshot of *url* and save to *output*.
 
     Waits for ``document.readyState == "complete"`` then monitors for UI
@@ -38,6 +48,8 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0) -> bool
         Selenium page-load timeout in seconds.
     min_wait:
         Minimum seconds to wait before declaring stable.
+    secure_context:
+        Treat the page's plain-http origin as secure (cit.secure_context).
 
     Returns
     -------
@@ -51,6 +63,14 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0) -> bool
     options.add_argument("--disable-extensions")
     options.add_argument(f"--window-size={WINDOW_SIZE}")
     options.set_capability("acceptInsecureCerts", True)
+    # The container is reached at its own IP over plain http, which is not a
+    # secure context: the browser withholds SharedArrayBuffer, and apps that
+    # run sqlite in the browser (Actual) stop with a fatal error instead of
+    # their UI. An image that says so (cit.secure_context) gets just this
+    # origin treated as secure.
+    origin = secure_origin(url) if secure_context else ""
+    if origin:
+        options.add_argument(f"--unsafely-treat-insecure-origin-as-secure={origin}")
     if CHROME_BIN:
         options.binary_location = CHROME_BIN
 

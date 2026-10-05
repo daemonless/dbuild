@@ -413,6 +413,7 @@ def _test_screenshot(
     port: int,
     *,
     https: bool = False,
+    secure_context: bool = False,
     screenshot_path: str | None = None,
     screenshot_wait: int = 0,
     baseline: Path | None = None,
@@ -444,7 +445,7 @@ def _test_screenshot(
         screenshot_file = tmp.name
 
     try:
-        if not capture(url, screenshot_file, timeout=30, min_wait=screenshot_wait):
+        if not capture(url, screenshot_file, timeout=30, min_wait=screenshot_wait, secure_context=secure_context):
             return False, "Screenshot capture failed", {}
 
         # Basic verification
@@ -636,6 +637,7 @@ def _functional_checks(
         ip,
         port,
         https=https,
+        secure_context=test.secure_context,
         screenshot_path=test.screenshot_path,
         screenshot_wait=test.screenshot_wait or 0,
         baseline=baseline,
@@ -1045,7 +1047,7 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
         url = f"{scheme}://{ip}:{port}{screenshot_path}"
 
         log.info(f"Capturing: {url}")
-        if not capture(url, output, timeout=30, min_wait=screenshot_wait):
+        if not capture(url, output, timeout=30, min_wait=screenshot_wait, secure_context=test.secure_context):
             log.error("Screenshot capture failed")
             return 1
 
