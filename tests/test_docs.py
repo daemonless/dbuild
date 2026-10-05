@@ -629,7 +629,7 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
 
     def test_a_part_can_be_dropped_and_depends_on_follows(self):
         with tempfile.TemporaryDirectory() as d:
-            ctx, outputs, errors = self._render(Path(d))
+            _, outputs, errors = self._render(Path(d))
         self.assertEqual(errors, [])
         off = outputs["compose.machine_learning-off.yaml"]
         self.assertNotIn("\n  ml:", off)
@@ -642,7 +642,7 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
 
     def test_authored_director_is_sliced_per_option(self):
         with tempfile.TemporaryDirectory() as d:
-            ctx, outputs, _ = self._render(Path(d))
+            ctx, _, _ = self._render(Path(d))
         off = _combo(ctx, machine_learning="off")
         self.assertNotIn("photos_ml", off["director_text"])
         self.assertNotIn("cache:", off["director_text"], "a volume only the dropped jail used is gone too")
@@ -659,7 +659,7 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
 
     def test_readme_has_parts_and_the_authored_director(self):
         with tempfile.TemporaryDirectory() as d:
-            ctx, outputs, _ = self._render(Path(d))
+            _, outputs, _ = self._render(Path(d))
         readme = outputs["README.md"]
         self.assertIn("## Parts", readme)
         self.assertIn("| **ml** | `ghcr.io/daemonless/photos-ml:latest` | Faces and search |", readme)

@@ -10,7 +10,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from dbuild import test as cit
 from dbuild.config import AppTestConfig
@@ -268,7 +268,7 @@ class TestTestPort(unittest.TestCase):
 
     def test_port_not_listening(self):
         # Use a port that's almost certainly not listening
-        result = cit._test_port("127.0.0.1", 19, timeout=2)
+        result = cit._test_port("127.0.0.1", 19, timeout=0.05, poll_interval=0.01)
         self.assertFalse(result)
 
 
@@ -327,7 +327,7 @@ class TestTestHealth(unittest.TestCase):
         self.assertTrue(result)
 
     def test_health_connection_refused(self):
-        result = cit._test_health("127.0.0.1", 19, "/", timeout=2)
+        result = cit._test_health("127.0.0.1", 19, "/", timeout=0.05, poll_interval=0.01)
         self.assertFalse(result)
 
 
@@ -404,6 +404,58 @@ class TestWaitForReady(unittest.TestCase):
             state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
         self.assertEqual(state, "exited")
 
+    def test_crashed_on_panic_pattern(self):
+        be = _FakeReadyBackend(logs="starting up\npanic: runtime error: invalid memory address\n")
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "crashed")
+
+    def test_crashed_on_segfault(self):
+        be = _FakeReadyBackend(logs="starting up\nSegmentation fault (core dumped)\n")
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "crashed")
+
+    def test_crashed_on_service_crash_loop(self):
+        be = _FakeReadyBackend(logs=(
+            "[s6] Service 'radarr' crashed (Exit: 137, Signal: 0)\n"
+            "[s6] Service 'radarr' crashed (Exit: 137, Signal: 0)\n"
+            "[s6] Service 'radarr' crashed (Exit: 137, Signal: 0)\n"
+        ))
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "crashed")
+
+    def test_single_service_crash_recovers(self):
+        # A single crash followed by recovery should NOT abort CIT
+        be = _FakeReadyBackend(logs=(
+            "[s6] Service 'radarr' crashed (Exit: 137, Signal: 0)\n"
+            "Server started\n"
+        ))
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "ready")
+
+    def test_unhandled_exception_does_not_false_fail(self):
+        # .NET non-fatal background task exception does not fail CIT
+        be = _FakeReadyBackend(logs=(
+            "Unhandled exception. System.InvalidOperationException\n"
+            "Server started\n"
+        ))
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "ready")
+
+    def test_address_in_use_does_not_false_fail(self):
+        # Dual-stack IPv6 bind failure does not fail CIT
+        be = _FakeReadyBackend(logs=(
+            "bind: Address already in use\n"
+            "Server started\n"
+        ))
+        with patch("dbuild.test.time.sleep"):
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "ready")
+
 
 class TestTestHealth5xx(unittest.TestCase):
     """5xx responses must NOT count as healthy."""
@@ -420,7 +472,7 @@ class TestTestHealth5xx(unittest.TestCase):
         cls.server.shutdown()
 
     def test_health_500_fails(self):
-        result = cit._test_health("127.0.0.1", self.port, "/", timeout=2)
+        result = cit._test_health("127.0.0.1", self.port, "/", timeout=0.05, poll_interval=0.01)
         self.assertFalse(result)
 
 
@@ -603,6 +655,34 @@ class TestPuidPhase(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(results["ownership"], "fail")
         self.assertNotIn("re-chown", results)
+
+
+class TestDiagnosePortFailure(unittest.TestCase):
+    """Tests for _diagnose_port_failure()."""
+
+    def test_diagnose_port_listening_localhost(self):
+        mock_backend = MagicMock()
+        mock_backend.exec_in.return_value.returncode = 0
+        mock_backend.exec_in.return_value.stdout = (
+            "USER COMMAND PID FD PROTO LOCAL ADDRESS FOREIGN ADDRESS\n"
+            "bsd app 1234 4 tcp4 127.0.0.1:8080 *:*\n"
+        )
+        with patch.object(cit.log, "error") as mock_err:
+            cit._diagnose_port_failure(mock_backend, "c1", 8080)
+        mock_err.assert_called()
+        self.assertTrue(any("listening on localhost" in str(arg) for call in mock_err.call_args_list for arg in call[0]))
+
+    def test_diagnose_port_not_listening(self):
+        mock_backend = MagicMock()
+        mock_backend.exec_in.return_value.returncode = 0
+        mock_backend.exec_in.return_value.stdout = (
+            "USER COMMAND PID FD PROTO LOCAL ADDRESS FOREIGN ADDRESS\n"
+            "bsd app 1234 4 tcp4 *:9000 *:*\n"
+        )
+        with patch.object(cit.log, "warn") as mock_warn:
+            cit._diagnose_port_failure(mock_backend, "c1", 8080)
+        mock_warn.assert_called()
+        self.assertTrue(any("No process is listening" in str(arg) for call in mock_warn.call_args_list for arg in call[0]))
 
 
 if __name__ == "__main__":

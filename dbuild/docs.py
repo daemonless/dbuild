@@ -324,7 +324,7 @@ def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
     if not cs:
         return []
     ordered = [sorted(c.options, key=lambda o: o.id != c.default) for c in cs]
-    return [list(zip(cs, picks)) for picks in itertools.product(*ordered)]
+    return [list(zip(cs, picks, strict=True)) for picks in itertools.product(*ordered)]
 
 
 def _choice_variants(cfg: Config) -> list[tuple[list[tuple[Any, Any]], str, str]]:
@@ -477,9 +477,9 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
             k, sep, v = ln.partition("=")
             if sep and k.strip() and not k.lstrip().startswith("#"):
                 env_values[k.strip()] = v.partition("  #")[0].strip()
-        resolve = lambda text: _re.sub(  # noqa: E731
+        resolve = lambda text, ev=env_values: _re.sub(  # noqa: E731
             r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}",
-            lambda m: env_values.get(m.group(1)) or (m.group(2) or ""), text)
+            lambda m: ev.get(m.group(1)) or (m.group(2) or ""), text)
         parsed = (yaml.safe_load(ct) or {}).get("services") or {}
         parts, jails = [], []
         for sname, svc in parsed.items():
