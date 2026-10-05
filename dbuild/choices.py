@@ -122,6 +122,12 @@ class Option:
     # name), and a jail template file when the engine needs one.
     director_dep: dict[str, Any] = field(default_factory=dict)
     env_appjail: dict[str, str] = field(default_factory=dict)
+    # Service -> the variable that carries its host name (the app's own
+    # x-daemonless.hostnames, for a service the option adds). env sets the
+    # service's name, right on any compose network; a consumer that knows
+    # this map can say 127.0.0.1 instead when every service shares the
+    # host's network, where no container DNS answers that name.
+    hostnames: dict[str, str] = field(default_factory=dict)
     jail_template_file: str = ""
     jail_template: str = ""
 
@@ -205,6 +211,7 @@ def _database_options(cid: str, c: dict[str, Any], services: dict[str, Any]) -> 
         env_appjail = {v_host: jail.replace("-", "_")} if v_host else {}
         opts.append(Option(id=eid, label=e["label"], doc=e["doc"], env=env, service_yaml=service_yaml, env_lines=env_lines,
                            director_dep=director_dep, env_appjail=env_appjail,
+                           hostnames={e["service"]: v_host} if v_host else {},
                            jail_template_file=tpl_file, jail_template=e.get("jail_template", "")))
     return opts, env_map
 
@@ -553,6 +560,7 @@ def to_fjord(choices: list[Choice], compose_text: str, compose_data: dict[str, A
                 "id": o.id, "label": o.label, "doc": o.doc,
                 "env": dict(o.env), "defaults": defaults, "secrets": secrets,
                 "services": add, "depends_on": depends, "drop": list(o.drop),
+                "hostnames": dict(o.hostnames),
                 "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": dict(a.values)} for a in o.ask],
             })
         out.append({"id": c.id, "kind": c.kind, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
