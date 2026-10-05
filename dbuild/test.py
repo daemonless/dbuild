@@ -83,6 +83,15 @@ _DEFAULT_READY_PATTERNS = (
     r"|is ready"
 )
 
+# Fatal crash signatures that indicate immediate unrecoverable container failure
+_FATAL_CRASH_PATTERNS = re.compile(
+    r"panic:\s"
+    r"|Fatal error:"
+    r"|Segmentation fault"
+    r"|core dumped"
+)
+_CRASH_LOOP_PATTERN = re.compile(r"Service '.*' crashed")
+
 
 # ── Label reading ─────────────────────────────────────────────────────
 
@@ -254,27 +263,43 @@ def _wait_for_ready(
     timeout: int,
     *,
     backend: ContainerBackend,
+    poll_interval: float = 3.0,
 ) -> str:
     """Poll container logs for ready patterns.
 
     Returns ``"ready"`` when a pattern matched, ``"timeout"`` when the
     timeout elapsed without a match (non-fatal -- the port/health checks
-    decide), or ``"exited"`` when the container died during the wait.
+    decide), ``"crashed"`` when a fatal crash pattern is detected, or
+    ``"exited"`` when the container died during the wait.
     """
     compiled = re.compile(patterns)
-    poll_interval = 3
-    elapsed = 0
+    elapsed = 0.0
     while elapsed < timeout:
         if not backend.running(cname, quiet=True):
             log.error("Container exited during ready wait")
-            for line in backend.logs(cname).splitlines()[-20:]:
+            for line in backend.logs(cname).splitlines()[-50:]:
                 log.info(f"  {line}")
             return "exited"
 
-        if compiled.search(backend.logs(cname, quiet=True)):
-            log.info(f"Ready signal after {elapsed}s")
-            time.sleep(2)
+        logs = backend.logs(cname, quiet=True)
+        if compiled.search(logs):
+            log.info(f"Ready signal after {elapsed:.1f}s")
+            time.sleep(min(2.0, poll_interval))
             return "ready"
+
+        crash_match = _FATAL_CRASH_PATTERNS.search(logs)
+        if crash_match:
+            log.error(f"Container fatal crash detected: {crash_match.group(0)!r}")
+            for line in logs.splitlines()[-50:]:
+                log.info(f"  {line}")
+            return "crashed"
+
+        crashes = len(_CRASH_LOOP_PATTERN.findall(logs))
+        if crashes >= 3:
+            log.error(f"Container service crash loop detected ({crashes} service crashes)")
+            for line in logs.splitlines()[-50:]:
+                log.info(f"  {line}")
+            return "crashed"
 
         time.sleep(poll_interval)
         elapsed += poll_interval
@@ -336,22 +361,28 @@ def _test_command(
     return True
 
 
-def _test_port(ip: str, port: int, timeout: int) -> bool:
+def _test_port(
+    ip: str,
+    port: int,
+    timeout: int,
+    *,
+    poll_interval: float = 1.0,
+) -> bool:
     """Wait for a TCP port to be listening using stdlib socket."""
     log.info(f"Waiting for {ip}:{port} (timeout: {timeout}s)")
-    elapsed = 0
+    elapsed = 0.0
     while elapsed < timeout:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
+        sock.settimeout(min(2.0, max(0.01, float(timeout) - elapsed)))
         try:
             result = sock.connect_ex((ip, port))
             if result == 0:
-                log.info(f"Port ready after {elapsed}s")
+                log.info(f"Port ready after {elapsed:.1f}s")
                 return True
         finally:
             sock.close()
-        time.sleep(1)
-        elapsed += 1
+        time.sleep(poll_interval)
+        elapsed += poll_interval
 
     log.error(f"Port {port} not listening after {timeout}s")
     return False
@@ -363,6 +394,8 @@ def _test_health(
     path: str,
     timeout: int,
     https: bool = False,
+    *,
+    poll_interval: float = 2.0,
 ) -> bool:
     """Wait for an HTTP endpoint to respond with a non-error status.
 
@@ -381,28 +414,33 @@ def _test_health(
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-    elapsed = 0
+    elapsed = 0.0
     last = "no response"
+    http_timeout = min(5.0, max(0.1, float(timeout)))
     while elapsed < timeout:
         try:
             if https:
-                conn = http.client.HTTPSConnection(ip, port, timeout=5, context=ctx)
+                conn = http.client.HTTPSConnection(ip, port, timeout=http_timeout, context=ctx)
             else:
-                conn = http.client.HTTPConnection(ip, port, timeout=5)
+                conn = http.client.HTTPConnection(ip, port, timeout=http_timeout)
             conn.request("GET", path)
             resp = conn.getresponse()
             code = resp.status
+            body = resp.read(1024).decode("utf-8", errors="replace").strip()
             conn.close()
 
             last = f"HTTP {code}"
+            if body and code >= 500:
+                body_snippet = body.replace("\n", " ")[:200]
+                last = f"HTTP {code} ({body_snippet})"
             if code < 500:
-                log.info(f"Health ready after {elapsed}s (HTTP {code})")
+                log.info(f"Health ready after {elapsed:.1f}s (HTTP {code})")
                 return True
         except (ConnectionRefusedError, ConnectionResetError, OSError, http.client.HTTPException):
             pass
 
-        time.sleep(2)
-        elapsed += 2
+        time.sleep(poll_interval)
+        elapsed += poll_interval
 
     log.error(f"Health check failed after {timeout}s (last: {last})")
     return False
@@ -534,15 +572,39 @@ def _dump_logs(
     compose_file: Path | None,
     backend: ContainerBackend,
     cname: str,
+    lines: int = 50,
 ) -> None:
-    """Print the last 10 lines of container/compose logs."""
+    """Print the last lines of container/compose logs."""
     if compose_mode:
         assert compose_file is not None
         output = podman.compose_logs(str(compose_file))
     else:
         output = backend.logs(cname)
-    for line in output.splitlines()[-10:]:
+    for line in output.splitlines()[-lines:]:
         log.info(f"  {line}")
+
+
+def _diagnose_port_failure(backend: ContainerBackend, cname: str, port: int) -> None:
+    """Inspect listening sockets inside the container to diagnose connection failures."""
+    try:
+        res = backend.exec_in(cname, ["sockstat", "-46l"])
+        if res.returncode == 0 and res.stdout:
+            lines = res.stdout.splitlines()
+            port_str = f":{port}"
+            matching = [line for line in lines if port_str in line]
+            if matching:
+                log.info("Diagnostic (sockstat -46l inside container):")
+                for line in matching:
+                    log.info(f"  {line}")
+                    if "127.0.0.1" in line or "::1" in line:
+                        log.error(
+                            f"Port {port} is listening on localhost (127.0.0.1/::1) inside container, "
+                            "not 0.0.0.0. Applications in FreeBSD containers must bind to 0.0.0.0 to receive traffic."
+                        )
+            else:
+                log.warn(f"Diagnostic: No process is listening on port {port} inside container {cname}.")
+    except Exception:
+        pass
 
 
 def _functional_checks(
@@ -596,7 +658,7 @@ def _functional_checks(
         if mode in ("health", "screenshot"):
             state = _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
             results["ready"] = {"ready": "pass", "timeout": "timeout"}.get(state, "fail")
-            if state == "exited":
+            if state in ("exited", "crashed"):
                 return 1
 
     # === PORT TEST ===
@@ -608,6 +670,8 @@ def _functional_checks(
         return 1
     if not _test_port(ip, port, test.wait):
         results["port"] = "fail"
+        if not compose_mode:
+            _diagnose_port_failure(backend, cname, port)
         _dump_logs(compose_mode, compose_file, backend, cname)
         return 1
     results["port"] = "pass"
@@ -1014,28 +1078,20 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Container IP: {ip}")
 
             # Wait for ready
-            _wait_for_ready(container_name, ready_patterns, test.wait, backend=backend)
+            state = _wait_for_ready(container_name, ready_patterns, test.wait, backend=backend)
+            if state in ("exited", "crashed"):
+                return 1
 
         # Wait for port
         if not _test_port(ip, port, test.wait):
-            if compose_mode:
-                assert compose_file is not None
-                output_logs = podman.compose_logs(str(compose_file))
-            else:
-                output_logs = podman.logs(container_name)
-            for line in output_logs.splitlines()[-10:]:
-                log.info(f"  {line}")
+            if not compose_mode:
+                _diagnose_port_failure(backend, container_name, port)
+            _dump_logs(compose_mode, compose_file, backend, container_name)
             return 1
 
         # Wait for health if configured
         if health and not _test_health(ip, port, health, test.wait, https=https):
-            if compose_mode:
-                assert compose_file is not None
-                output_logs = podman.compose_logs(str(compose_file))
-            else:
-                output_logs = podman.logs(container_name)
-            for line in output_logs.splitlines()[-10:]:
-                log.info(f"  {line}")
+            _dump_logs(compose_mode, compose_file, backend, container_name)
             return 1
 
         # Capture screenshot
@@ -1124,7 +1180,7 @@ def _puid_start_and_wait(
         return False
     # Timeout is non-fatal (the ownership assert follows); only a dead
     # container is a hard failure.
-    return _wait_for_ready(cname, _PUID_READY, wait, backend=backend) != "exited"
+    return _wait_for_ready(cname, _PUID_READY, wait, backend=backend) not in ("exited", "crashed")
 
 
 def _puid_phase(
@@ -1151,7 +1207,9 @@ def _puid_phase(
 
     # Make sure cont-init (incl. the usermod chown) has finished before
     # asserting — shell-mode functional checks don't wait for it.
-    _wait_for_ready(cname1, _PUID_READY, wait, backend=backend)
+    if _wait_for_ready(cname1, _PUID_READY, wait, backend=backend) in ("exited", "crashed"):
+        results["ownership"] = "fail"
+        return 1
 
     # ── Deploy 1: assert ownership on the running CIT container ──
     ok, msg = _puid_assert(backend, cname1, init_uid, init_gid, ignore)

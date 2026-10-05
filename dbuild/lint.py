@@ -44,6 +44,7 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
 
     errors: list[str] = []
     warnings: list[str] = []
+    meta: dict[str, Any] = {}
 
     compose_path = repo_path / "compose.yaml"
     config_path = repo_path / ".daemonless" / "config.yaml"
@@ -349,11 +350,7 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
 
     if verbose:
         print("  checking Containerfile")
-    is_stack_repo = False
-    try:
-        is_stack_repo = ((yaml.safe_load((repo_path / "compose.yaml").read_text()) or {}).get("x-daemonless") or {}).get("type") == "stack"
-    except Exception:
-        pass
+    is_stack_repo = meta.get("type") == "stack"
     has_containerfile = any(
         (repo_path / name).exists()
         for name in (

@@ -47,7 +47,6 @@ def make_variant(**kwargs) -> Variant:
         "containerfile": "Containerfile",
         "args": {},
         "aliases": [],
-        "auto_version": False,
         "default": True,
         "pkg_name": None,
     }
