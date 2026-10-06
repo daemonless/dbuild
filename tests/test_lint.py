@@ -318,3 +318,80 @@ class TestStackRepoLint(unittest.TestCase):
             errors, _ = lint_repo(p)
         self.assertNotIn("Missing Containerfile", errors)
         self.assertFalse([e for e in errors if "x-daemonless.user" in e], errors)
+
+
+class TestContainerfileBloatLint(unittest.TestCase):
+    """Tests for Containerfile bloat and cache cleanup lint rules."""
+
+    def test_uncleaned_pkg_install_warns(self):
+        import tempfile
+        from pathlib import Path
+
+        from dbuild.lint import lint_repo
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            (p / "Containerfile").write_text(
+                "FROM base:15.1\n"
+                "RUN pkg update && \\\n"
+                "    pkg install -y vim\n"
+            )
+            _, warnings = lint_repo(p)
+        self.assertTrue(
+            any("without cleaning package caches" in w for w in warnings),
+            f"Expected uncleaned pkg install warning, got {warnings}",
+        )
+
+    def test_cleaned_pkg_install_no_warn(self):
+        import tempfile
+        from pathlib import Path
+
+        from dbuild.lint import lint_repo
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            (p / "Containerfile").write_text(
+                "FROM base:15.1\n"
+                "RUN pkg update && \\\n"
+                "    pkg install -y vim && \\\n"
+                "    pkg clean -ay && \\\n"
+                "    rm -rf /var/cache/pkg/* /var/db/pkg/repos/*\n"
+            )
+            _, warnings = lint_repo(p)
+        self.assertFalse(
+            any("without cleaning package caches" in w for w in warnings),
+            f"Expected no uncleaned pkg install warning, got {warnings}",
+        )
+
+    def test_standalone_cleanup_run_warns(self):
+        import tempfile
+        from pathlib import Path
+
+        from dbuild.lint import lint_repo
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            (p / "Containerfile").write_text(
+                "FROM base:15.1\n"
+                "RUN rm -rf /var/cache/pkg/*\n"
+            )
+            _, warnings = lint_repo(p)
+        self.assertTrue(
+            any("Standalone cleanup 'RUN'" in w for w in warnings),
+            f"Expected standalone cleanup warning, got {warnings}",
+        )

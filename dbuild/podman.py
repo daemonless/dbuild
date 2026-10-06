@@ -141,7 +141,7 @@ def build(
     return tag
 
 
-def run_in(image: str, cmd: list[str] | str) -> str:
+def run_in(image: str, cmd: list[str] | str, *, quiet: bool = False) -> str:
     """Run *cmd* inside a disposable container and return stdout.
 
     Uses ``--entrypoint=""`` to bypass s6-overlay or other entrypoints
@@ -152,7 +152,7 @@ def run_in(image: str, cmd: list[str] | str) -> str:
         run_cmd += ["sh", "-c", cmd]
     else:
         run_cmd += cmd
-    result = _run(run_cmd)
+    result = _run(run_cmd, quiet=quiet)
     return result.stdout.strip()
 
 
@@ -205,6 +205,12 @@ def image_exists(ref: str) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def history(image: str, *, quiet: bool = False) -> list[dict[str, Any]]:
+    """Return image layer history as parsed JSON."""
+    result = _run(["podman", "history", "--format", "json", image], quiet=quiet)
+    return json.loads(result.stdout) if result.stdout.strip() else []
 
 
 def run_detached(

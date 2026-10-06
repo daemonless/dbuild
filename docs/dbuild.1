@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-10-03" "dbuild 1.10.1" "User Commands"
+.TH DBUILD 1 "2026-10-06" "dbuild 1.10.1" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -7,6 +7,29 @@ dbuild \- FreeBSD OCI container image build tool
 .SH DESCRIPTION
 dbuild provides a streamlined interface for creating and managing OCI-compliant containers that run natively in FreeBSD Jails. It eliminates the friction of configuring ocijail, networking, and jail templates by using a 'Registry-First' approach. Configuration is automatically derived from Git remotes and standard Compose files, allowing for reproducible builds across local and CI environments.
 .SH COMMANDS
+.TP
+\fBanalyze\fR
+Inspect container image layers, detect zombie layers (cleanup commands that don't reclaim space), scan for leftover compilers, development headers, static libraries, and package caches.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
+.TP
+\fB--arch\fR
+override target architecture (e.g. amd64, aarch64)
+.TP
+\fB--json\fR
+output analysis as JSON
+.TP
+\fB--threshold-mb\fR
+flag bloat items exceeding this threshold in MB (default: 5.0)
+.TP
+\fB--skip-container\fR
+skip in-container rootfs audit (layer history analysis only)
+.RE
 .TP
 \fBappjail-bundle\fR
 Render the AppJail files from compose.yaml metadata into a directory -- the same bundle daemonless.io publishes. Emits nothing for images without appjail enabled (meta.appjail unset).
@@ -20,6 +43,29 @@ output directory (default: ./appjail)
 .TP
 \fB--image-ref\fR
 override the Makejail 'from' image ref (e.g. a local build for testing)
+.RE
+.TP
+\fBaudit\fR
+Inspect container image layers, detect zombie layers (cleanup commands that don't reclaim space), scan for leftover compilers, development headers, static libraries, and package caches.
+.RS
+.TP
+\fB-h\fR, \fB--help\fR
+show this help message and exit
+.TP
+\fB--variants\fR, \fB--variant\fR
+filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
+.TP
+\fB--arch\fR
+override target architecture (e.g. amd64, aarch64)
+.TP
+\fB--json\fR
+output analysis as JSON
+.TP
+\fB--threshold-mb\fR
+flag bloat items exceeding this threshold in MB (default: 5.0)
+.TP
+\fB--skip-container\fR
+skip in-container rootfs audit (layer history analysis only)
 .RE
 .TP
 \fBbaseline\fR
@@ -343,12 +389,12 @@ The primary source of truth for metadata and documentation.
 \fI.daemonless/config.yaml\fR
 Project-specific build and test overrides.
 .TP
-\fI/usr/local/etc/daemonless.yaml\fR
+\fI$PREFIX/etc/daemonless.yaml\fR
 Optional host-local defaults, including pkg_cache_url for local pkg-cache injection.
 .SH GLOBAL CONFIGURATION
-The \fI/usr/local/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
+The \fI$PREFIX/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
 .PP
-Example \fI/usr/local/etc/daemonless.yaml\fR:
+Example \fI$PREFIX/etc/daemonless.yaml\fR:
 .IP
 .nf
 pkg_cache_url: pkg-cache.example.lan:8080
