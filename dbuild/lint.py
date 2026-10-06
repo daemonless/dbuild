@@ -23,6 +23,58 @@ except ImportError:
 # parsing) don't start their pattern with '_'.
 _VERSION_STRIP_RE = re.compile(r"s/_[^/]*//")
 
+_STANDALONE_CLEANUP_RE = re.compile(
+    r"^\s*(?:rm\s+-[a-zA-Z]*r[a-zA-Z]*f\s+/(?:var/cache|var/db/pkg|tmp|usr/local/include)|pkg\s+clean)",
+    re.IGNORECASE,
+)
+
+
+def _lint_containerfile_bloat(cf_path: Path, lines: list[str]) -> list[str]:
+    """Flag uncleaned pkg caches and standalone cleanup layers in Containerfiles."""
+    warnings: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if stripped.startswith("RUN ") or stripped == "RUN":
+            start_line = i + 1
+            cmd_parts = [stripped[4:].strip() if stripped.startswith("RUN ") else ""]
+            curr = lines[i]
+            while curr.rstrip().endswith("\\") and i + 1 < len(lines):
+                i += 1
+                curr = lines[i]
+                cmd_parts.append(curr.strip().rstrip("\\"))
+            full_cmd = " ".join(cmd_parts)
+
+            # Standalone cleanup checks
+            if (
+                _STANDALONE_CLEANUP_RE.search(full_cmd)
+                and "pkg install" not in full_cmd
+                and "make" not in full_cmd
+                and "fetch" not in full_cmd
+                and "curl" not in full_cmd
+            ):
+                warnings.append(
+                    f"{cf_path.name}:{start_line}: Standalone cleanup 'RUN' does not"
+                    " recover disk space from earlier layers due to copy-on-write"
+                    " semantics — combine file deletion into the command that created"
+                    " them using '&&'"
+                )
+
+            # Uncleaned pkg install checks
+            if "pkg install" in full_cmd or "pkg upgrade" in full_cmd:
+                has_clean = "pkg clean" in full_cmd
+                has_rm_cache = "/var/cache/pkg" in full_cmd
+                if not (has_clean and has_rm_cache):
+                    warnings.append(
+                        f"{cf_path.name}:{start_line}: RUN contains 'pkg install'"
+                        " without cleaning package caches in the same layer — add"
+                        " 'pkg clean -ay && rm -rf /var/cache/pkg/* /var/db/pkg/repos/*'"
+                        " to avoid bloating the layer"
+                    )
+        i += 1
+    return warnings
+
 REQUIRED_X_DAEMONLESS_FIELDS = [
     "title",
     "icon",
@@ -370,6 +422,7 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             continue
         if "BASE_VERSION=15.0" in cf_text or "base:15.0" in cf_text:
             warnings.append(f"{cf_path.name} uses stale FreeBSD 15.0 baseline — update to 15.1")
+        warnings.extend(_lint_containerfile_bloat(cf_path, cf_text.splitlines()))
 
     if verbose:
         print("  checking for stale generated files (drift check)")

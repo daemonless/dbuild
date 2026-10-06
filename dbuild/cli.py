@@ -459,6 +459,52 @@ def _make_parser() -> argparse.ArgumentParser:
         help="save screenshot to FILE (default: .daemonless/baseline.png)",
     )
 
+    # -- analyze --
+    analyze_parser = sub.add_parser(
+        "analyze",
+        aliases=["audit"],
+        help="analyze image layers and rootfs for bloat and wasted space",
+        description=(
+            "Inspect container image layers, detect zombie layers (cleanup commands "
+            "that don't reclaim space), scan for leftover compilers, development "
+            "headers, static libraries, and package caches."
+        ),
+    )
+    analyze_parser.add_argument(
+        "image",
+        nargs="?",
+        metavar="IMAGE",
+        help="image name or tag to analyze (defaults to current project's built image)",
+    )
+    analyze_parser.add_argument("--variants", "--variant", **variant_kw)
+    analyze_parser.add_argument("--arch", **arch_kw)
+    analyze_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        dest="json_output",
+        help="output analysis as JSON",
+    )
+    analyze_parser.add_argument(
+        "--threshold-mb",
+        type=float,
+        default=5.0,
+        metavar="MB",
+        help="flag bloat items exceeding this threshold in MB (default: 5.0)",
+    )
+    analyze_parser.add_argument(
+        "--skip-container",
+        action="store_true",
+        default=False,
+        help="skip in-container rootfs audit (layer history analysis only)",
+    )
+    analyze_parser.add_argument(
+        "--pull",
+        action="store_true",
+        default=False,
+        help="pull the image from registry if not found locally in storage",
+    )
+
     # -- ci-prepare --
     ci_prepare_parser = sub.add_parser(
         "ci-prepare",
@@ -675,7 +721,9 @@ _DISPATCHERS: dict[str, callable] = {
 }
 
 # Commands that run without loading project config
-_NO_CONFIG_COMMANDS: set[str] = {"init", "ci-prepare", "ci-test-env", "lint", "screenshot", "logo", "help"}
+_NO_CONFIG_COMMANDS: set[str] = {
+    "init", "ci-prepare", "ci-test-env", "lint", "screenshot", "logo", "help", "analyze", "audit",
+}
 
 
 # ── Entry point ───────────────────────────────────────────────────────
@@ -732,6 +780,17 @@ def main(argv: list[str] | None = None) -> None:
             elif args.command == "logo":
                 from dbuild import upstream_assets
                 rc = upstream_assets.run_logo(args)
+            elif args.command in ("analyze", "audit"):
+                from dbuild import analyze
+                cfg = None
+                if not getattr(args, "image", None):
+                    try:
+                        cfg = load_config(Path.cwd())
+                    except Exception:
+                        cfg = None
+                if cfg is None:
+                    cfg = Config(image=Path.cwd().name, registry="localhost")
+                rc = analyze.run_analyze(cfg, args)
             elif args.command == "help":
                 subparsers = next(
                     action for action in parser._actions
