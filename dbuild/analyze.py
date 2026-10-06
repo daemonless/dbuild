@@ -451,26 +451,26 @@ def run_analyze(cfg: Config, args: argparse.Namespace) -> int:
             want = set(variant_filter.split(","))
             variants = [v for v in variants if v.tag in want]
 
-        if variants:
-            image = f"localhost/{img_name}:{variants[0].tag}"
-            if not podman.image_exists(image):
-                # Try build-{tag} staging name
-                build_image = f"localhost/{img_name}:build-{variants[0].tag}"
-                if podman.image_exists(build_image):
-                    image = build_image
+        tag = variants[0].tag if variants else "latest"
+        registry = getattr(cfg, "registry", "localhost")
+        candidates = [
+            f"localhost/{img_name}:{tag}",
+            f"localhost/{img_name}:build-{tag}",
+            f"{registry}/{img_name}:{tag}",
+            f"{registry}/{img_name}:build-{tag}",
+            f"ghcr.io/daemonless/{img_name}:{tag}",
+            f"ghcr.io/daemonless/{img_name}:build-{tag}",
+        ]
+        found = next((c for c in candidates if podman.image_exists(c)), None)
+        if found:
+            image = found
         else:
-            image = f"localhost/{img_name}:latest"
-            if not podman.image_exists(image):
-                build_image = f"localhost/{img_name}:build-latest"
-                if podman.image_exists(build_image):
-                    image = build_image
-                else:
-                    log.error(
-                        f"Image {image!r} not found in local storage. "
-                        "Specify an image to analyze (e.g. 'dbuild analyze <image>'), "
-                        "or run 'dbuild build' first."
-                    )
-                    return 1
+            log.error(
+                f"No local image found for {img_name} (checked {', '.join(candidates[:3])}). "
+                "Specify an image to analyze (e.g. 'dbuild analyze <image>'), "
+                "or run 'dbuild build' first."
+            )
+            return 1
 
     threshold_mb = getattr(args, "threshold_mb", 5.0)
     skip_container = getattr(args, "skip_container", False)
