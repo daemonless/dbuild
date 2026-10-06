@@ -462,14 +462,31 @@ def run_analyze(cfg: Config, args: argparse.Namespace) -> int:
             f"ghcr.io/daemonless/{img_name}:build-{tag}",
         ]
         found = next((c for c in candidates if podman.image_exists(c)), None)
+        if not found and getattr(args, "pull", False):
+            pull_target = f"{registry}/{img_name}:{tag}"
+            log.info(f"Pulling {pull_target} from registry...")
+            try:
+                podman.pull(pull_target)
+                found = pull_target
+            except Exception as e:
+                log.error(f"Failed to pull {pull_target}: {e}")
+                return 1
+
         if found:
             image = found
         else:
             log.error(
-                f"No local image found for {img_name} (checked {', '.join(candidates[:3])}). "
-                "Specify an image to analyze (e.g. 'dbuild analyze <image>'), "
-                "or run 'dbuild build' first."
+                f"No local image found for {img_name} (checked {', '.join(candidates[:3])}).\n"
+                f"  ↳ To pull and analyze from the registry: dbuild analyze --pull\n"
+                f"  ↳ Or build locally first:                dbuild build"
             )
+            return 1
+    elif not podman.image_exists(image) and getattr(args, "pull", False):
+        log.info(f"Pulling {image} from registry...")
+        try:
+            podman.pull(image)
+        except Exception as e:
+            log.error(f"Failed to pull {image}: {e}")
             return 1
 
     threshold_mb = getattr(args, "threshold_mb", 5.0)

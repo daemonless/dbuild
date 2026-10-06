@@ -498,6 +498,12 @@ def _make_parser() -> argparse.ArgumentParser:
         default=False,
         help="skip in-container rootfs audit (layer history analysis only)",
     )
+    analyze_parser.add_argument(
+        "--pull",
+        action="store_true",
+        default=False,
+        help="pull the image from registry if not found locally in storage",
+    )
 
     # -- ci-prepare --
     ci_prepare_parser = sub.add_parser(

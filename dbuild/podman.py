@@ -179,6 +179,11 @@ def login(host: str, username: str, password: str) -> None:
         raise PodmanError(cmd, result.returncode, stderr)
 
 
+def pull(image: str) -> None:
+    """Pull an image from a registry."""
+    _run(["podman", "pull", image])
+
+
 def push(image_ref: str) -> None:
     """Push an image to a registry."""
     _run(["podman", "push", image_ref])
