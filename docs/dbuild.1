@@ -395,12 +395,12 @@ The primary source of truth for metadata and documentation.
 \fI.daemonless/config.yaml\fR
 Project-specific build and test overrides.
 .TP
-\fI$PREFIX/etc/daemonless.yaml\fR
+\fI/usr/local/etc/daemonless.yaml\fR
 Optional host-local defaults, including pkg_cache_url for local pkg-cache injection.
 .SH GLOBAL CONFIGURATION
-The \fI$PREFIX/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
+The \fI/usr/local/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
 .PP
-Example \fI$PREFIX/etc/daemonless.yaml\fR:
+Example \fI/usr/local/etc/daemonless.yaml\fR:
 .IP
 .nf
 pkg_cache_url: pkg-cache.example.lan:8080
