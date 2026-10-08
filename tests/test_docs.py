@@ -739,3 +739,18 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         self.assertEqual(pg["env"]["TODO_DB_HOST"], "postgres")
         ext = next(o for o in db["options"] if o["id"] == "external")
         self.assertEqual([a["name"] for a in ext["ask"]][:2], ["TODO_DB_TYPE", "TODO_DB_HOST"])
+
+
+class DirectorEnvTagTest(unittest.TestCase):
+    """An authored "!ENV '...'" string becomes the tag, wherever the variable sits."""
+
+    def test_text_around_the_variable(self):
+        # immich's ML address: text before the variable stayed a literal
+        # string, and the server got "!ENV 'http://..." as its ML URL.
+        out = docs._render_director_override({"services": {"server": {"oci": {"environment": [
+            {"DB_HOSTNAME": "!ENV '${DB_HOSTNAME:127.0.0.1}'"},
+            {"ML_URL": "!ENV 'http://${ML_HOST:127.0.0.1}:3003'"},
+        ]}}}})
+        self.assertIn("DB_HOSTNAME: !ENV '${DB_HOSTNAME:127.0.0.1}'", out)
+        self.assertIn("ML_URL: !ENV 'http://${ML_HOST:127.0.0.1}:3003'", out)
+        self.assertNotIn("'!ENV", out)
