@@ -699,6 +699,37 @@ jobs:
           SHORT_SHA="${SHORT_SHA:0:7}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
 
-          curl -sS -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"🚀 New Container Fleet Addition: ${{ inputs.image_name }}\",\"url\":\"$COMMIT_URL\",\"color\":15844367,\"fields\":[{\"name\":\"Registry\",\"value\":\"[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})\",\"inline\":true},{\"name\":\"Commit\",\"value\":\"[$SHORT_SHA]($COMMIT_URL)\",\"inline\":true},{\"name\":\"Branch\",\"value\":\"${{ github.ref_name }}\",\"inline\":true}],\"footer\":{\"text\":\"Daemonless FreeBSD Native OCI Containers\"}}]}" \
-            "$ANNOUNCE_WEBHOOK"
+          # The app's logo as the embed's thumbnail. Discord shows no SVG, so
+          # an SVG is turned into a PNG; no logo, or a failed conversion,
+          # announces without one.
+          LOGO=""
+          if [ -f .daemonless/logo.png ]; then
+            LOGO=.daemonless/logo.png
+          elif [ -f .daemonless/logo.svg ]; then
+            if command -v rsvg-convert >/dev/null 2>&1 \
+               || sudo apt-get install -y -qq librsvg2-bin >/dev/null 2>&1 \
+               || { sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y -qq librsvg2-bin >/dev/null 2>&1; }; then
+              rsvg-convert -w 256 -a .daemonless/logo.svg -o /tmp/announce-logo.png 2>/dev/null \
+                && LOGO=/tmp/announce-logo.png || true
+            fi
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg title "🚀 New Container Fleet Addition: ${{ inputs.image_name }}" \
+            --arg url "$COMMIT_URL" \
+            --arg registry "[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})" \
+            --arg commit "[$SHORT_SHA]($COMMIT_URL)" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg logo "$LOGO" \
+            '{embeds: [({title: $title, url: $url, color: 15844367,
+                fields: [{name: "Registry", value: $registry, inline: true},
+                         {name: "Commit", value: $commit, inline: true},
+                         {name: "Branch", value: $branch, inline: true}],
+                footer: {text: "Daemonless FreeBSD Native OCI Containers"}}
+              + (if $logo != "" then {thumbnail: {url: "attachment://logo.png"}} else {} end))]}')
+
+          if [ -n "$LOGO" ]; then
+            curl -sS -F "payload_json=$PAYLOAD" -F "files[0]=@$LOGO;filename=logo.png;type=image/png" "$ANNOUNCE_WEBHOOK"
+          else
+            curl -sS -H "Content-Type: application/json" -d "$PAYLOAD" "$ANNOUNCE_WEBHOOK"
+          fi
