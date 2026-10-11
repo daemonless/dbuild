@@ -63,7 +63,7 @@ services:
 {%- if appjail and appjail.depends_on %}
 {%- for dep in appjail.depends_on %}
   {{ dep.name }}:
-    name: {{ dep.name | replace("-", "_") }}
+    name: {{ (dep.jail or dep.name) | replace("-", "_") }}
 {%- if dep.priority %}
     priority: {{ dep.priority }}
 {%- endif %}

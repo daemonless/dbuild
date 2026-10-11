@@ -90,10 +90,9 @@ def option_forms(cfg: Any) -> dict[str, dict[str, dict[str, Any]]]:
                 added = _added(_director_dict(_render_template_director(cfg, with_dep)), base)
                 if o.jail_template_file and o.jail_template:
                     files[o.jail_template_file] = o.jail_template
-                # The jail's own service name in the director: what fjord
-                # names the jail by, and so what the app's host variable
-                # must say there (the compose calls it "mariadb", the
-                # director "vikunja-mariadb").
+                # The jail's service name in the director, the compose's
+                # ("mariadb"): what fjord names the jail by, and so what the
+                # app's host variable must say there.
                 for var in o.hostnames.values():
                     hostnames[o.director_dep["name"]] = var
             if not added:

@@ -450,6 +450,12 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
         for o in opts:
             if o.director_dep:
                 aj["depends_on"] = [*(aj.get("depends_on") or []), o.director_dep]
+        # A sidecar is named as its compose service, so an option that drops
+        # the service (grimmory's own MariaDB) drops the jail too.
+        dropped = {d for o in opts for d in o.drop}
+        if dropped and aj.get("depends_on"):
+            aj["depends_on"] = [d for d in aj["depends_on"] if d.get("name") not in dropped]
+        for o in opts:
             values.update(o.env)
             values.update(o.env_appjail)
             for ln in o.env_lines:
