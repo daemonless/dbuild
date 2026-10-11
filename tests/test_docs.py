@@ -262,6 +262,64 @@ class TestReadmeWithSidecar(unittest.TestCase):
             self.assertEqual(dbuild_config.load(repo).compose_text, "")
 
 
+class TestReadmeDroppedSidecar(unittest.TestCase):
+    """An option that drops the bundled database drops its jail too: the
+    README's director for "your own MariaDB" ran a MariaDB nobody wanted
+    (grimmory, 2026-10-11)."""
+
+    COMPOSE = (
+        "name: app\n"
+        "x-daemonless:\n"
+        '  title: "App"\n'
+        '  description: "An app and its database."\n'
+        '  category: "Productivity"\n'
+        '  user: "bsd"\n'
+        "  appjail:\n"
+        "    depends_on:\n"
+        "      - name: mariadb\n"
+        "        image: ghcr.io/daemonless/mariadb:latest\n"
+        "  choices:\n"
+        "    database:\n"
+        "      label: Database\n"
+        "      default: builtin\n"
+        "      options:\n"
+        "        builtin:\n"
+        "          label: Built-in MariaDB\n"
+        "        external:\n"
+        "          label: Your own MariaDB\n"
+        "          drop: [mariadb]\n"
+        "          ask:\n"
+        "            - name: DB_HOST\n"
+        "              label: Host\n"
+        "services:\n"
+        "  app:\n"
+        "    image: ghcr.io/daemonless/app:latest\n"
+        "    environment:\n"
+        "      - DB_HOST=${DB_HOST:-127.0.0.1}\n"
+        "    depends_on:\n"
+        "      - mariadb\n"
+        "  mariadb:\n"
+        "    image: ghcr.io/daemonless/mariadb:latest\n"
+    )
+
+    def test_director_without_the_dropped_jail(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "compose.yaml").write_text(self.COMPOSE)
+            (repo / "example.env").write_text("DB_HOST=\n")
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+        self.assertEqual(errors, [])
+        aj = outputs["README.md"].split("### AppJail Director", 1)[1]
+        builtin = aj[aj.index("#### Built-in MariaDB"):aj.index("#### Your own MariaDB")]
+        own = aj[aj.index("#### Your own MariaDB"):]
+        self.assertIn("  mariadb:\n", builtin, "the default keeps its database")
+        self.assertNotIn("  mariadb:\n", own, "your own MariaDB: no jail for the bundled one")
+        self.assertIn("container: 'args:--pull'", own, "the app's own jail is still there")
+
 @contextlib.contextmanager
 def _set_env(key: str, value: str):
     prev = os.environ.get(key)
@@ -500,7 +558,7 @@ class TestStackChoices(unittest.TestCase):
         readme = outputs["README.md"]
         aj = readme[readme.index("### AppJail Director"):]
         pg = aj[aj.index("#### PostgreSQL, Off"):aj.index("#### MariaDB, Off")]
-        self.assertIn("  todo-postgres:\n    name: todo_postgres\n    priority: 10", pg, "the engine's jail starts first")
+        self.assertIn("  postgres:\n    name: todo_postgres\n    priority: 10", pg, "named as the compose service, the jail app-prefixed, starting first")
         self.assertIn("POSTGRES_PASSWORD: !ENV '${TODO_DB_PASSWORD}'", pg, "reads the app's own variables")
         self.assertIn("TODO_DB_HOST=todo_postgres", pg, "the host is the jail's name")
         self.assertIn("template: !ENV '${PWD}/postgres-template.conf'", pg)

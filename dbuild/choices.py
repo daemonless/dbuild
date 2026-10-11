@@ -197,16 +197,18 @@ def _database_options(cid: str, c: dict[str, Any], services: dict[str, Any]) -> 
             f"      - \"${{{v_data}}}:{e['data']}\"\n"
         )
         env_lines = [f"{v_user}={app}", f"{v_pass}=  # set one", f"{v_name}={app}", f"{v_data}=/containers/{app}/{e['service']}"]
-        # appjail-director: the service is a jail named <app>_<engine>, which
-        # is also its hostname on the project's network; it starts before the
-        # app (director starts by ascending priority, default 99).
+        # appjail-director: the service is named as in the compose ("mariadb"),
+        # so a plan that names compose services (fjord's networking) finds it
+        # on AppJail too; the jail is <app>_<engine>, unique on the host and
+        # its hostname on the project's network. It starts before the app
+        # (director starts by ascending priority, default 99).
         jail = f"{app}-{e['service']}"
         tpl_file = f"{e['service']}-template.conf" if e.get("jail_template") else ""
         dep_env = {e["env"]["user"]: f"!ENV '${{{v_user}}}'", e["env"]["password"]: f"!ENV '${{{v_pass}}}'",
                    e["env"]["name"]: f"!ENV '${{{v_name}}}'"}
         for k, v in (e.get("extra_env") or {}).items():
             dep_env[k] = "!ENV '" + v.format(password=v_pass) + "'"
-        director_dep = {"name": jail, "image": e["image"], "template": tpl_file, "priority": 10,
+        director_dep = {"name": e["service"], "jail": jail, "image": e["image"], "template": tpl_file, "priority": 10,
                         "env": dep_env, "volumes": {cid: e["data"]}}
         env_appjail = {v_host: jail.replace("-", "_")} if v_host else {}
         opts.append(Option(id=eid, label=e["label"], doc=e["doc"], env=env, service_yaml=service_yaml, env_lines=env_lines,

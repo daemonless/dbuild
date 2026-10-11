@@ -41,6 +41,10 @@ class TestOptionForms(unittest.TestCase):
         # The host variable names the jail by its director service.
         (svc, var), = pg["hostnames"].items()
         self.assertEqual(var, "TODO_DB_HOST")
+        # Named as the compose names it, so fjord's network plan (which names
+        # compose services) finds the jail; grafana's MariaDB was refused.
+        self.assertEqual(svc, "postgres")
+        self.assertIn("name: todo_postgres", pg["director"], "the jail stays app-prefixed")
         self.assertIn(f"  {svc}:\n", pg["director"])
         self.assertNotIn("sqlite", forms.get("database", {}), "nothing to add, no form")
 
