@@ -739,3 +739,21 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         self.assertEqual(pg["env"]["TODO_DB_HOST"], "postgres")
         ext = next(o for o in db["options"] if o["id"] == "external")
         self.assertEqual([a["name"] for a in ext["ask"]][:2], ["TODO_DB_TYPE", "TODO_DB_HOST"])
+
+
+class TestDirectorEnvUnquote(unittest.TestCase):
+    """An !ENV value written as a string comes out as the tag, wherever its
+    ${VAR} sits: immich's ML URL starts with http:// and stayed a quoted
+    string, so the jail got the literal text "!ENV 'http://...'"."""
+
+    def test_unquotes_a_variable_inside_a_value(self):
+        from dbuild.docs import _render_director_override
+        body = _render_director_override({"services": {"server": {"oci": {"environment": [
+            {"ML_URL": "!ENV 'http://${ML_HOST:127.0.0.1}:3003'"},
+            {"DB_HOST": "!ENV '${DB_HOST:127.0.0.1}'"},
+            {"PLAIN": "no variable here"},
+        ]}}}})
+        self.assertIn("ML_URL: !ENV 'http://${ML_HOST:127.0.0.1}:3003'", body)
+        self.assertIn("DB_HOST: !ENV '${DB_HOST:127.0.0.1}'", body)
+        self.assertNotIn("'!ENV", body)
+        self.assertIn("PLAIN: no variable here", body)

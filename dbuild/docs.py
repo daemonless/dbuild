@@ -932,8 +932,10 @@ def _render_director_override(director: dict) -> str:
     # quoted -- '!ENV ''${VAR}''' -- which director reads as literal text, not
     # a tag, and the jail gets the string "!ENV '${VAR}'" as its value.
     # Unquote so it is the tag pyaml-env resolves.
-    body = _re.sub(r"""'!ENV ''(\$\{[^}]+\}[^']*)'''""", r"!ENV '\1'", body)
-    body = _re.sub(r'''"!ENV '(\$\{[^}]+\}[^']*)'"''', r"!ENV '\1'", body)
+    # Any value with a ${VAR} in it, not only one that starts with one: immich's
+    # 'http://${IMMICH_ML_HOST:127.0.0.1}:3003' stayed quoted.
+    body = _re.sub(r"""'!ENV ''([^']*\$\{[^}]+\}[^']*)'''""", r"!ENV '\1'", body)
+    body = _re.sub(r'''"!ENV '([^'"]*\$\{[^}]+\}[^'"]*)'"''', r"!ENV '\1'", body)
     return "# appjail-director.yml\n\n" + body
 
 
