@@ -815,3 +815,46 @@ class TestDirectorEnvUnquote(unittest.TestCase):
         self.assertIn("DB_HOST: !ENV '${DB_HOST:127.0.0.1}'", body)
         self.assertNotIn("'!ENV", body)
         self.assertIn("PLAIN: no variable here", body)
+
+
+class TestHostNetworkDirectorExpose(unittest.TestCase):
+    """A director on the host's stack (alias, ip4_inherit) cannot carry
+    expose: appjail refuses it without a virtualnet. woodpecker's README
+    director failed `appjail-director up` (2026-10-11). The deploy bundle
+    keeps them for fjord, which moves the jails onto networks."""
+
+    COMPOSE = (
+        "name: app\n"
+        "x-daemonless:\n"
+        '  title: "App"\n'
+        '  description: "An app on the host network."\n'
+        '  category: "Development"\n'
+        '  user: "bsd"\n'
+        "  appjail:\n"
+        "    director:\n"
+        "      options:\n"
+        "        - alias:\n"
+        "        - ip4_inherit:\n"
+        "services:\n"
+        "  app:\n"
+        "    image: ghcr.io/daemonless/app:latest\n"
+        "    ports:\n"
+        "      - 8000:8000\n"
+    )
+
+    def test_readme_has_no_expose_bundle_keeps_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "compose.yaml").write_text(self.COMPOSE)
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+                docs.generate_appjail_files(cfg, repo / "bundle")
+            bundle = (repo / "bundle" / "appjail-director.yml").read_text()
+        self.assertEqual(errors, [])
+        aj = outputs["README.md"].split("### AppJail Director", 1)[1]
+        self.assertIn("ip4_inherit", aj)
+        self.assertNotIn("expose:", aj, "no expose next to ip4_inherit")
+        self.assertIn("expose:", bundle, "the deploy bundle keeps them for fjord")

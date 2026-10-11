@@ -1,4 +1,19 @@
 # appjail-director.yml
+{#- expose is a NAT redirect from the host and appjail refuses it without a
+    virtualnet ("expose requires the following options: virtualnet"). A
+    director on the host's stack (alias, ip4_inherit) answers on the host's
+    ports already, so the README's copy leaves them out. The "deploy" render
+    keeps them: fjord moves the jails onto networks and drops what does not
+    apply. #}
+{%- set ns = namespace(vnet=true) %}
+{%- if appjail and appjail.director and appjail.director.options %}
+{%- set ns.vnet = false %}
+{%- for opt in appjail.director.options %}
+{%- if (opt is mapping and "virtualnet" in opt) or (opt is string and opt.startswith("virtualnet")) %}
+{%- set ns.vnet = true %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
 
 options:
 {%- if appjail and appjail.director and appjail.director.options %}
@@ -20,7 +35,7 @@ services:
     name: {{ name | replace("-", "_") }}
     options:
       - container: 'args:--pull'
-{%- for p in ports %}
+{%- for p in ports if ns.vnet or (render_mode is defined and render_mode == "deploy") %}
 {%- if render_mode is defined and render_mode == "deploy" and loop.first %}
       - expose: !ENV '${WEB_PORT}:{{ p.target }} proto:{{ p.protocol }}'
 {%- elif loop.first %}
