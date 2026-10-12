@@ -78,7 +78,7 @@ def _prefix_from_executable() -> Path | None:
     return executable.parent.parent
 
 # Valid x-daemonless categories — single source of truth across dbuild.
-VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base"]
+VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base", "part"]
 
 # Valid x-daemonless.type values. "app" (default): normal buildable image.
 # "base": FROM-only base image (version.py uses base-style version extraction).
@@ -393,7 +393,9 @@ class Metadata:
             + ", ".join(f"`{c}`" for c in VALID_IMAGE_CLASSES)
             + ". `service` (default): persistent daemon with compose, AppJail Director and Bastille docs. "
             "`cli`: run-and-exit tool, deployment section replaced with usage example. "
-            "`base`: base image for FROM, no deployment docs."
+            "`base`: base image for FROM, no deployment docs. "
+            "`part`: one piece of a stack, installed by the stack (immich-server); "
+            "no deployment docs, and app catalogs leave it out."
         ),
     })
     deprecated: DeprecationInfo | None = field(default=None, metadata={
