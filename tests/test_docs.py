@@ -320,6 +320,72 @@ class TestReadmeDroppedSidecar(unittest.TestCase):
         self.assertNotIn("  mariadb:\n", own, "your own MariaDB: no jail for the bundled one")
         self.assertIn("container: 'args:--pull'", own, "the app's own jail is still there")
 
+
+class TestDirectorMatchesCompose(unittest.TestCase):
+    """The jail gets what the compose gives the container. A variable the
+    docs describe but the compose leaves commented out is not set in the
+    jail: stump got STUMP_TRUST_PROXY_HEADERS="" on AppJail, refused it and
+    crash-looped (2026-10-12). Podman never set it."""
+
+    COMPOSE = (
+        "name: app\n"
+        "x-daemonless:\n"
+        '  title: "App"\n'
+        '  description: "An app."\n'
+        '  category: "Productivity"\n'
+        '  user: "bsd"\n'
+        "  docs:\n"
+        "    env:\n"
+        '      TZ: "Timezone"\n'
+        '      APP_PROXY: "Uncomment behind a proxy"\n'
+        "      APP_MODE:\n"
+        '        desc: "Mode"\n'
+        '        default: "fast"\n'
+        "services:\n"
+        "  app:\n"
+        "    image: ghcr.io/daemonless/app:latest\n"
+        "    environment:\n"
+        "      - TZ=UTC\n"
+        "      # - APP_PROXY=true\n"
+        "    ports:\n"
+        "      - 8080:8080\n"
+    )
+
+    def test_commented_out_env_stays_out_of_the_jail(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "compose.yaml").write_text(self.COMPOSE)
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+        self.assertEqual(errors, [])
+        readme = outputs["README.md"]
+        self.assertNotIn("APP_PROXY=\n", readme, "set empty somewhere")
+        self.assertNotIn("APP_PROXY=  #", readme.replace("# - APP_PROXY=  #", ""), "set empty in the compose")
+        self.assertNotIn("-e APP_PROXY=", readme, "set empty in podman run")
+        self.assertNotIn("APP_PROXY: !ENV", readme, "set empty in the jail")
+        self.assertIn("# - APP_PROXY=  # Uncomment behind a proxy", readme, "the compose still documents it")
+        self.assertIn("| `APP_PROXY` |", readme, "the table still lists it")
+        self.assertIn("APP_MODE: !ENV", readme, "a documented default still reaches the jail")
+        self.assertIn("TZ: !ENV", readme)
+
+
+    def test_jail_is_named_as_the_compose_service(self):
+        # opencloud-radicale's service is "radicale"; fjord matches the two.
+        compose = self.COMPOSE.replace("services:\n  app:\n", "services:\n  radicale:\n")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "opencloud-radicale"
+            (repo / ".daemonless").mkdir(parents=True)
+            (repo / "compose.yaml").write_text(compose)
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                docs.generate_appjail_files(cfg, Path(d) / "out")
+            director = (Path(d) / "out" / "appjail-director.yml").read_text()
+        self.assertIn("\n  radicale:\n    name: radicale\n", director)
+
 @contextlib.contextmanager
 def _set_env(key: str, value: str):
     prev = os.environ.get(key)
