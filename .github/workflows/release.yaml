@@ -1,0 +1,66 @@
+name: Release
+
+# Pushing a v* tag publishes its GitHub Release (notes from the merged PRs).
+# A manual run (re)publishes one for a tag that already exists.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v* tag to publish a release for"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # Image CI fetches DBUILD_REF by tag, so a release whose bump missed
+      # either place would ship one version and run another.
+      - name: Tag matches dbuild.VERSION and DBUILD_REF
+        run: |
+          VERSION="${TAG#v}"
+          PKG=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' dbuild/__init__.py)
+          REF=$(sed -n 's/^  DBUILD_REF: \(.*\)$/\1/p' .github/workflows/daemonless-build.yaml)
+          echo "tag ${TAG}  dbuild.VERSION ${PKG}  DBUILD_REF ${REF}"
+          [ "$PKG" = "$VERSION" ] || { echo "::error::dbuild/__init__.py says ${PKG}, tag is ${TAG}"; exit 1; }
+          [ "$REF" = "$TAG" ] || { echo "::error::DBUILD_REF is ${REF}, tag is ${TAG}"; exit 1; }
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Tests
+        run: |
+          pip install -e '.[dev,screenshot]'
+          python -m pytest tests/ -q
+
+      # Create once; a re-run on a tag that already has one does nothing.
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${TAG#v}"
+          if gh release view "${TAG}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists"
+            exit 0
+          fi
+          # A hyphen (v1.11.0-rc1) is a pre-release, never marked Latest.
+          PRE=""
+          case "${VERSION}" in *-*) PRE="--prerelease" ;; esac
+          gh release create "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            $PRE
