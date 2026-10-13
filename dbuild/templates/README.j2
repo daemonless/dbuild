@@ -39,7 +39,11 @@ services:
 {%- if env %}
     environment:
 {%- for e in env %}
+{%- if e.unset %}
+      # - {{ e.name }}={{ "  # " ~ e.desc if e.desc else "" }}
+{%- else %}
       - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}{{ "  # " ~ e.desc if e.desc else "" }}
+{%- endif %}
 {%- endfor %}
 {%- endif %}
 {%- if volumes %}
@@ -208,7 +212,7 @@ podman run -d --name {{ name }} \
 {%- if healthcheck %}
   --health-cmd {{ healthcheck }} \
 {%- endif %}
-{%- for e in env %}
+{%- for e in env if not e.unset %}
   -e {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
 {%- endfor %}
 {%- for v in volumes %}
@@ -228,7 +232,7 @@ services:
       - mode: host
 {%- if env %}
     environment:
-{%- for e in env %}
+{%- for e in env if not e.unset %}
       - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}
 {%- endfor %}
 {%- endif %}

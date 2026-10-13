@@ -604,8 +604,23 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         if match:
             base_version = _normalize_base_version(match.group(1))
 
+    # The jail is named as the compose names the service, not the repo:
+    # fjord matches the two, and refused opencloud-radicale (service
+    # "radicale") with "this stack has no service named radicale".
+    app_service = cfg.image
+    compose_path = Path.cwd() / "compose.yaml"
+    if compose_path.exists():
+        import yaml  # lazy, as everywhere in this module
+        try:
+            svcs = list(((yaml.safe_load(compose_path.read_text()) or {}).get("services") or {}).keys())
+        except yaml.YAMLError:
+            svcs = []
+        if len(svcs) == 1:
+            app_service = str(svcs[0])
+
     context = {
         "name": cfg.image,
+        "app_service": app_service,
         "base_version": base_version,
         "title": meta.title,
         "description": meta.description,
@@ -681,9 +696,9 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     for k, v in env_docs.items():
         if k not in existing_env_names:
             if isinstance(v, dict):
-                cfg.env.append({"name": k, "default": str(v.get("default", ""))})
+                cfg.env.append({"name": k, "default": str(v.get("default", "")), "docs_only": True})
             else:
-                cfg.env.append({"name": k, "default": ""})
+                cfg.env.append({"name": k, "default": "", "docs_only": True})
 
     # An app shipped with its database reads its values from .env: show what
     # example.env gives, or the compose's own ${VAR:-fallback}, instead of the
@@ -714,6 +729,11 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             desc = desc.get("desc", "")
 
         item = {"name": name, "default": display_val, "desc": desc}
+        # Documented but not set by the compose (commented out there) and
+        # with no value: the jail must not get it set empty -- stump refuses
+        # STUMP_TRUST_PROXY_HEADERS="" and crash-loops on AppJail only.
+        if e.get("docs_only") and not val:
+            item["unset"] = True
         if name in ["PUID", "PGID", "TZ"]:
             item["placeholder"] = f"@{name}@"
         context["env"].append(item)

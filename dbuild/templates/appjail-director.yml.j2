@@ -31,8 +31,8 @@ options:
   - nat:
 {%- endif %}
 services:
-  {{ name }}:
-    name: {{ name | replace("-", "_") }}
+  {{ app_service or name }}:
+    name: {{ (app_service or name) | replace("-", "_") }}
     options:
       - container: 'args:--pull'
 {%- for p in ports if ns.vnet or (render_mode is defined and render_mode == "deploy") %}
@@ -63,7 +63,7 @@ services:
     oci:
       user: root
       environment:
-{%- for e in env if not e.env_only %}
+{%- for e in env if not e.env_only and not e.unset %}
         - {{ e.name }}: !ENV '${{ '{' }}{{ e.name }}{{ '}' }}'
 {%- endfor %}
 {%- endif %}
