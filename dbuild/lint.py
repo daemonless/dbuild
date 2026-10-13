@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dbuild import choices as choices_mod
-from dbuild.config import VALID_CATEGORIES, VALID_TYPES
+from dbuild.config import VALID_CATEGORIES, VALID_TYPES, is_cli_name
 
 try:
     import yaml
@@ -144,6 +144,30 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                         )
                     else:
                         errors.append(f"Missing required field: x-daemonless.{field}")
+
+            cli = meta.get("cli")
+            if cli is not None:
+                if not isinstance(cli, list) or not cli:
+                    errors.append("x-daemonless.cli must be a list of CLI names, e.g. [thelounge]")
+                else:
+                    for c in cli:
+                        if not is_cli_name(c):
+                            errors.append(
+                                f"x-daemonless.cli: {c!r} is not a CLI name"
+                                " (a command on PATH, no path or arguments)"
+                            )
+                    # Base puts the wrapper dir first on PATH; an image that
+                    # sets its own (a venv first) would run the real binary.
+                    sources = sorted(repo_path.glob("Containerfile*.j2")) or sorted(repo_path.glob("Containerfile*"))
+                    for cf_path in sources:
+                        for line in cf_path.read_text().splitlines():
+                            m = re.match(r'\s*(?:ENV\s+)?PATH[=\s]\s*"?([^"\s]*)', line)
+                            if m and not m.group(1).startswith("/usr/local/daemonless/bin:"):
+                                errors.append(
+                                    f"{cf_path.name} sets PATH without /usr/local/daemonless/bin first,"
+                                    " so x-daemonless.cli wrappers would be skipped:"
+                                    ' use PATH="/usr/local/daemonless/bin:..."'
+                                )
 
             description = meta.get("description", "")
             if "deprecated" in description.lower():

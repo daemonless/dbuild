@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -405,6 +406,15 @@ class Metadata:
         "doc": "Stack choices (x-daemonless.choices): what the compose offers "
                "under profiles -- a database to pick, a part to leave out. See dbuild.choices.",
     })
+    cli: list[str] = field(default_factory=list, metadata={
+        "desc": (
+            "CLIs that run as the app user under `podman exec` (e.g. `[thelounge]`), "
+            "so they can't leave root-owned files in /config. Each gets a wrapper "
+            "from the base's `daemonless-cli` in `/usr/local/daemonless/bin`, which base puts "
+            "first on PATH; the real binary's full path still runs as root."
+        ),
+        "display_default": "[]",
+    })
     readme: ReadmeBlocks | None = field(default=None, metadata={
         "desc": "Custom Markdown blocks to inject into specific sections of the README.",
     })
@@ -730,6 +740,18 @@ def _parse_deprecated(meta: dict[str, Any]) -> DeprecationInfo | None:
     return DeprecationInfo()
 
 
+def is_cli_name(name: Any) -> bool:
+    """A command on PATH: no path, no arguments ('php occ' would wrap php)."""
+    return (isinstance(name, str) and name != "daemonless-cli"
+            and re.fullmatch(r"[A-Za-z0-9._+-]+", name) is not None)
+
+
+def _parse_cli(meta: dict[str, Any]) -> list[str]:
+    """Parse ``cli:``. Shape errors are left to lint; bad names are skipped."""
+    raw = meta.get("cli")
+    return [c for c in raw if is_cli_name(c)] if isinstance(raw, list) else []
+
+
 def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = None) -> Metadata:
     """Parse the ``x-daemonless:`` section of the config file."""
     meta = data.get("x-daemonless", {})
@@ -768,6 +790,7 @@ def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = Non
         image_class=meta.get("class", "service"),
         choices=choices_mod.parse(meta, data),
         deprecated=_parse_deprecated(meta),
+        cli=_parse_cli(meta),
         readme=ReadmeBlocks(**meta.get("readme", {})),
     )
 

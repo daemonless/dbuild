@@ -395,3 +395,45 @@ class TestContainerfileBloatLint(unittest.TestCase):
             any("Standalone cleanup 'RUN'" in w for w in warnings),
             f"Expected standalone cleanup warning, got {warnings}",
         )
+
+
+class TestCliLint(unittest.TestCase):
+    """x-daemonless.cli names commands on PATH, nothing else."""
+
+    def _errors(self, cli_yaml: str) -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "Containerfile").write_text("FROM scratch\n")
+            (p / "compose.yaml").write_text(
+                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                + cli_yaml + "services:\n  chat:\n    image: ghcr.io/daemonless/chat:latest\n")
+            errors, _ = lint_repo(p)
+        return [e for e in errors if "x-daemonless.cli" in e]
+
+    def test_plain_names_pass(self):
+        self.assertEqual(self._errors("  cli: [thelounge, occ]\n"), [])
+
+    def test_paths_and_arguments_fail(self):
+        errs = self._errors("  cli: [/usr/local/bin/thelounge, 'php occ']\n")
+        self.assertEqual(len(errs), 2, errs)
+
+    def test_not_a_list_fails(self):
+        self.assertEqual(len(self._errors("  cli: thelounge\n")), 1)
+
+    def test_own_path_must_keep_the_wrappers_first(self):
+        import tempfile
+        cf = 'FROM scratch\nENV NODE_PATH="/x" \\\n    PATH="/opt/venv/bin:$PATH"\nENV LD_LIBRARY_PATH=/y\n'
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "Containerfile.j2").write_text(cf)
+            (p / "compose.yaml").write_text(
+                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n  cli: [chat]\n"
+                "services:\n  chat:\n    image: ghcr.io/daemonless/chat:latest\n")
+            errors, _ = lint_repo(p)
+            self.assertEqual(len([e for e in errors if "sets PATH" in e]), 1, errors)
+            (p / "Containerfile.j2").write_text(cf.replace("/opt/venv/bin:", "/usr/local/daemonless/bin:/opt/venv/bin:"))
+            errors, _ = lint_repo(p)
+            self.assertFalse([e for e in errors if "sets PATH" in e], errors)

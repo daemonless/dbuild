@@ -1006,6 +1006,17 @@ def _readme_generation_mode(cfg: Config, base: Path) -> str:
     return "generate"
 
 
+def _cli_wrappers(names: list[str]) -> str:
+    """The line x-daemonless.cli adds to the end of a Containerfile, i.e. to
+    its final stage. Base puts the wrapper dir first on PATH."""
+    if not names:
+        return ""
+    return (
+        "\n# CLIs run as the app user under podman exec (x-daemonless.cli)\n"
+        f"RUN daemonless-cli --install {' '.join(names)}\n"
+    )
+
+
 def render_generated(
     cfg: Config,
     args: argparse.Namespace,
@@ -1066,7 +1077,9 @@ def render_generated(
             repo_env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(base)))
             template = repo_env.get_template(j2_path.name)
             outputs[out_name] = (
-                HEADER_TEMPLATE.format(source=j2_path.name) + template.render(context)
+                HEADER_TEMPLATE.format(source=j2_path.name)
+                + template.render(context)
+                + _cli_wrappers(cfg.metadata.cli)
             )
         except Exception as e:
             errors.append(f"Failed to render {out_name}: {e}")

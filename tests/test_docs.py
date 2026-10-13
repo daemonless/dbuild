@@ -924,3 +924,37 @@ class TestHostNetworkDirectorExpose(unittest.TestCase):
         self.assertIn("ip4_inherit", aj)
         self.assertNotIn("expose:", aj, "no expose next to ip4_inherit")
         self.assertIn("expose:", bundle, "the deploy bundle keeps them for fjord")
+
+
+class TestCliWrappers(unittest.TestCase):
+    """x-daemonless.cli: the CLIs get wrappers in the final stage."""
+
+    def _render(self, cli_yaml: str):
+        compose = COMPOSE_YAML.format(name="chat").replace(
+            '  user: "bsd"\n', '  user: "bsd"\n' + cli_yaml)
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "compose.yaml").write_text(compose)
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            (repo / "Containerfile.pkg.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+        self.assertEqual(errors, [])
+        return outputs
+
+    def test_declared_clis_are_wrapped_last(self):
+        outputs = self._render("  cli: [thelounge, occ]\n")
+        for name in ("Containerfile", "Containerfile.pkg"):
+            cf = outputs[name]
+            self.assertTrue(cf.endswith("RUN daemonless-cli --install thelounge occ\n"), cf)
+
+    def test_no_cli_leaves_the_containerfile_alone(self):
+        outputs = self._render("")
+        self.assertNotIn("daemonless-cli", outputs["Containerfile"])
+
+    def test_a_command_line_is_not_wrapped(self):
+        outputs = self._render("  cli: [thelounge, 'php occ']\n")
+        self.assertIn("RUN daemonless-cli --install thelounge\n", outputs["Containerfile"],
+                      "'php occ' would wrap php itself; lint reports it")
