@@ -386,6 +386,33 @@ class TestDirectorMatchesCompose(unittest.TestCase):
             director = (Path(d) / "out" / "appjail-director.yml").read_text()
         self.assertIn("\n  radicale:\n    name: radicale\n", director)
 
+    def test_jail_env_keeps_a_reference_to_another_variable(self):
+        # grimmory: DATABASE_PASSWORD=${DB_PASSWORD} went into the jail's .env
+        # as example.env's "grimmory" while mariadb got the password fjord
+        # generated -- access denied. The README still shows the value.
+        compose = (
+            self.COMPOSE.replace('      TZ: "Timezone"\n', '      TZ: "Timezone"\n      DB_PASSWORD: "Database password"\n')
+            .replace("      - TZ=UTC\n", "      - TZ=${TZ:-UTC}\n      - DATABASE_PASSWORD=${DB_PASSWORD}\n      - DB_PASSWORD=${DB_PASSWORD}\n      - LOST=${NOT_IN_ENV}\n")
+            + "  db:\n    image: ghcr.io/daemonless/mariadb:latest\n"
+        )  # a stack: a single image's values are never resolved
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "app"
+            (repo / ".daemonless").mkdir(parents=True)
+            (repo / "compose.yaml").write_text(compose)
+            (repo / "example.env").write_text("DB_PASSWORD=app\nNOT_IN_ENV=x\n")
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+                docs.generate_appjail_files(cfg, Path(d) / "out")
+            env = next(p for p in (Path(d) / "out").iterdir() if p.name.endswith("env")).read_text()
+        self.assertEqual(errors, [])
+        self.assertIn("DATABASE_PASSWORD=${DB_PASSWORD}\n", env)
+        self.assertIn("DB_PASSWORD=app\n", env, "the variable it names keeps its value")
+        self.assertIn("TZ=UTC\n", env, "a variable never names itself")
+        self.assertNotIn("${NOT_IN_ENV}", env, "a name the .env doesn't carry keeps the value")
+        self.assertIn("| `DATABASE_PASSWORD` | `app` |", outputs["README.md"], "the README table shows the value")
+
 @contextlib.contextmanager
 def _set_env(key: str, value: str):
     prev = os.environ.get(key)

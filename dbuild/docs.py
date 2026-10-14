@@ -713,6 +713,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         name = e["name"]
         val = e["default"]
 
+        ref = None
         if cfg.compose_text:
             ref = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}", str(val or ""))
             if ref:
@@ -734,9 +735,22 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         # STUMP_TRUST_PROXY_HEADERS="" and crash-loops on AppJail only.
         if e.get("docs_only") and not val:
             item["unset"] = True
+        # The README shows the value; the jail's .env keeps the reference, or
+        # it loses the link: grimmory's DATABASE_PASSWORD=${DB_PASSWORD} went
+        # out as "grimmory" while mariadb got the password fjord generated.
+        if ref:
+            item["ref"] = ref.group(0)
         if name in ["PUID", "PGID", "TZ"]:
             item["placeholder"] = f"@{name}@"
         context["env"].append(item)
+    # Only a reference the .env can answer, to another variable: one it
+    # doesn't carry expands to nothing, and TZ=${TZ:-Etc/UTC} names itself.
+    carried = {i["name"] for i in context["env"] if not i.get("unset")}
+    for i in context["env"]:
+        ref = i.pop("ref", "")
+        target = re.match(r"\$\{([A-Za-z_][A-Za-z0-9_]*)", ref).group(1) if ref else ""
+        if target and target != i["name"] and target in carried:
+            i["env_ref"] = ref
 
     # Volumes
     vol_docs = {str(k): v for k, v in docs.get("volumes", {}).items()}
