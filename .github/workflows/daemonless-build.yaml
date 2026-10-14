@@ -219,6 +219,7 @@ jobs:
 
             rm -rf /var/db/containers /var/lib/containers 2>/dev/null || true
             kldload pf
+            kldload linux64  # linuxulator images: linux_base pre-install and CIT boot need it
             sysctl net.inet.ip.forwarding=1
             sysctl kern.ipc.shm_allow_removed=1
           run: |
@@ -461,6 +462,7 @@ jobs:
 
             rm -rf /var/db/containers /var/lib/containers 2>/dev/null || true
             kldload pf
+            kldload linux64  # linuxulator images: linux_base pre-install and CIT boot need it
             sysctl net.inet.ip.forwarding=1
             sysctl kern.ipc.shm_allow_removed=1
           run: |
