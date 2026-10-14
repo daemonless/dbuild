@@ -468,7 +468,7 @@ class TestSitePlaceholders:
         compose = "      - PUID=1000\n      - PGID=1000\n    volumes:\n      - /containers/app/config:/config\n"
         assert _site_placeholders(compose) == (
             "      - PUID=@PUID@\n      - PGID=@PGID@\n    volumes:\n"
-            "      - @CONTAINER_CONFIG_ROOT@/app/config:/config\n")
+            '      - "@CONTAINER_CONFIG_ROOT@/app/config:/config"\n')
         env = "CONFIG_LOCATION=/containers/app\n# TZ=UTC\n"
         assert _site_placeholders(env, env_file=True) == (
             "CONFIG_LOCATION=@CONTAINER_CONFIG_ROOT@/app\nTZ=@TZ@\n")
@@ -479,7 +479,12 @@ class TestSitePlaceholders:
         # swapped, so the page showed /path/to@CONTAINER_CONFIG_ROOT@/<app>.
         from dbuild.docs import _site_placeholders
         compose = "      - /path/to/containers/uptime-kuma:/config\n"
-        assert _site_placeholders(compose) == "      - @CONTAINER_CONFIG_ROOT@/uptime-kuma:/config\n"
+        # quoted: a YAML value starting with @ is split by the highlighter
+        assert _site_placeholders(compose) == '      - "@CONTAINER_CONFIG_ROOT@/uptime-kuma:/config"\n'
+        long_form = "        source: /path/to/containers/app/db\n"
+        assert _site_placeholders(long_form) == '        source: "@CONTAINER_CONFIG_ROOT@/app/db"\n'
+        commented = "      - /path/to/containers/x:/data  # required\n"
+        assert _site_placeholders(commented) == '      - "@CONTAINER_CONFIG_ROOT@/x:/data"  # required\n'
         env = "DB_LOCATION=/path/to/containers/app/db\n"
         assert _site_placeholders(env, env_file=True) == "DB_LOCATION=@CONTAINER_CONFIG_ROOT@/app/db\n"
         assert _site_placeholders("      - /srv/containers/x:/x\n") == "      - /srv/containers/x:/x\n", "only at a path's start"

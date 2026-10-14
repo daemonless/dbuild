@@ -315,6 +315,11 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     text = re.sub(r"(?m)(\bPGID=)1000\b", r"\g<1>@PGID@", text)
     if env_file:
         text = re.sub(r"(?m)^#?\s*TZ=\S*$", "TZ=@TZ@", text)
+    else:
+        # A YAML value can't start with @: the highlighter splits it, and the
+        # site's settings panel never finds the placeholder. Quoted, it's one
+        # string (the README template quotes its volume lines for this).
+        text = re.sub(r"""(?m)^(\s*(?:-\s+|[\w.-]+:\s+))(@[A-Z_]+@[^\s#"']*)(?=[ \t]*(?:#.*)?$)""", r'\1"\2"', text)
     return text
 
 
