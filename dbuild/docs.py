@@ -33,6 +33,9 @@ from dbuild.config import (
 
 # Constants for placeholder generation
 CONFIG_ROOT_VAR = "@CONTAINER_CONFIG_ROOT@"
+# The config root a sample path starts with: /containers, or the fleet's
+# /path/to/containers -- all of it, or the page keeps /path/to in front.
+CONFIG_ROOT_RE = r"(?<![\w.-])(?:/path/to)?/containers(?=/)"
 SHARED_PATHS = ["/downloads", "/movies", "/tv", "/music", "/books", "/media"]
 
 HEADER_TEMPLATE = """# --------------------------------------------------------------------------
@@ -307,7 +310,7 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     """
     if not text:
         return ""
-    text = re.sub(r"/containers(?=/)", CONFIG_ROOT_VAR, text)
+    text = re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, text)
     text = re.sub(r"(?m)(\bPUID=)1000\b", r"\g<1>@PUID@", text)
     text = re.sub(r"(?m)(\bPGID=)1000\b", r"\g<1>@PGID@", text)
     if env_file:
@@ -514,7 +517,7 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
                 k, _, v = ln.partition("=")
                 if k.endswith("_LOCATION") and v and v not in folders:
                     folders.append(v)
-        folders = [f.replace("/containers", "@CONTAINER_CONFIG_ROOT@") for f in folders]
+        folders = [_re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, f) for f in folders]
         director_text = director_env_text = ""
         if authored is not None:
             sliced = _director_for_option(authored, cfg, None if is_default else opts)
