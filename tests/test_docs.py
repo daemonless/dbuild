@@ -474,6 +474,16 @@ class TestSitePlaceholders:
             "CONFIG_LOCATION=@CONTAINER_CONFIG_ROOT@/app\nTZ=@TZ@\n")
         assert _site_placeholders("") == ""
 
+    def test_the_whole_fleet_root_becomes_the_placeholder(self):
+        # 122 composes write /path/to/containers/<app>: only /containers was
+        # swapped, so the page showed /path/to@CONTAINER_CONFIG_ROOT@/<app>.
+        from dbuild.docs import _site_placeholders
+        compose = "      - /path/to/containers/uptime-kuma:/config\n"
+        assert _site_placeholders(compose) == "      - @CONTAINER_CONFIG_ROOT@/uptime-kuma:/config\n"
+        env = "DB_LOCATION=/path/to/containers/app/db\n"
+        assert _site_placeholders(env, env_file=True) == "DB_LOCATION=@CONTAINER_CONFIG_ROOT@/app/db\n"
+        assert _site_placeholders("      - /srv/containers/x:/x\n") == "      - /srv/containers/x:/x\n", "only at a path's start"
+
 
 # ── Stack choices ──────────────────────────────────────────────────────
 
