@@ -426,9 +426,15 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 **{{ c.label }}.** {{ c.doc }}
 {%- endfor %}
+{%- if choices_capped.podman %}
+
+{{ choices_capped.podman }}
+{%- endif %}
 {%- for cb in combos %}
+{%- if not choices_capped.podman %}
 
 #### {{ cb.label }}{% if cb.default %} (default){% endif %}
+{%- endif %}
 {%- if cb.doc %}
 
 {{ cb.doc }}
@@ -492,9 +498,15 @@ Save as `compose.yaml`, then run `podman-compose up -d`.
 {%- if appjail_enabled and choices %}
 
 ### AppJail Director
+{%- if choices_capped.appjail %}
+
+{{ choices_capped.appjail }}
+{%- endif %}
 {%- for cb in combos %}
+{%- if not choices_capped.appjail %}
 
 #### {{ cb.label }}{% if cb.default %} (default){% endif %}
+{%- endif %}
 
 {{ appjail_director_snippet(option=cb) }}
 

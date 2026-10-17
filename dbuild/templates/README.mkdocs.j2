@@ -10,6 +10,11 @@
     keeps Podman and AppJail on the same answers. Markdown inside the HTML
     (md_in_html) so the fences keep their zip attributes. #}
 {%- macro choice_form(runtime) -%}
+{%- if choices_capped[runtime] %}
+{{ choices_capped[runtime] }}
+
+{{ combo_files(combos[0], runtime) }}
+{% else -%}
 <div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}" markdown>
 {% for c in choices %}
 
@@ -28,6 +33,7 @@
 
 </div>
 {% endfor %}
+{%- endif %}
 {%- endmacro %}
 
 {%- macro combo_files(cb, runtime) -%}
