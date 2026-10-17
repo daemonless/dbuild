@@ -1000,3 +1000,69 @@ class TestCliWrappers(unittest.TestCase):
         outputs = self._render("  cli: [thelounge, 'php occ']\n")
         self.assertIn("RUN daemonless-cli --install thelounge\n", outputs["Containerfile"],
                       "'php occ' would wrap php itself; lint reports it")
+
+
+def _toggles_compose(n: int) -> str:
+    """A stack of n apps, each a choice that keeps it or drops it."""
+    choices = "".join(f"""\
+    app{i}:
+      label: App{i}
+      doc: App number {i}.
+      default: "on"
+      options:
+        "on": {{ label: "Included" }}
+        "off": {{ label: "Left out", drop: [app{i}] }}
+""" for i in range(n))
+    services = "".join(f"""\
+  app{i}:
+    image: ghcr.io/daemonless/app{i}:latest
+    ports:
+      - "{8080 + i}:80"
+""" for i in range(n))
+    return f"""\
+name: suite
+x-daemonless:
+  title: "Suite"
+  description: "Some apps."
+  category: "Utilities"
+  icon: ":test:"
+  upstream_url: "https://example.com"
+  user: "bsd"
+  choices:
+{choices}services:
+{services}"""
+
+
+class TestChoiceCap(unittest.TestCase):
+    """Each combination is a full set of files on the page: past MAX_COMBOS
+    the docs show the defaults, not 2^n copies."""
+
+    def _ctx(self, n: int):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            (tmp / "compose.yaml").write_text(_toggles_compose(n))
+            (tmp / "example.env").write_text("TZ=UTC\n")
+            (tmp / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(tmp):
+                cfg = dbuild_config.load(tmp)
+                ctx = docs._enrich_metadata(cfg, None)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), tmp)
+        return ctx, outputs, errors
+
+    def test_under_the_cap_every_combination_is_listed(self):
+        ctx, _, errors = self._ctx(4)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(ctx["combos"]), 16)
+        self.assertEqual(ctx["choices_capped"], {"podman": "", "appjail": ""})
+
+    def test_past_the_cap_only_the_defaults(self):
+        ctx, outputs, errors = self._ctx(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(ctx["combos"]), 1)
+        self.assertTrue(ctx["combos"][0]["default"])
+        self.assertIn("app9:", ctx["combos"][0]["compose_text"], "the default runs every app")
+        readme = outputs["README.md"]
+        self.assertIn("To leave one out, delete its service from `compose.yaml`.", readme)
+        self.assertNotIn("Left out", readme.split("### Podman Compose", 1)[1].split("###", 1)[0],
+                         "no heading per combination")
+        self.assertLess(len(readme), 50_000)

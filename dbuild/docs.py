@@ -323,16 +323,46 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     return text
 
 
+# Each combination is a full set of files on the page, so they multiply:
+# crafting-apps' ten on/off choices made 2048, a 42 MB page that crashed
+# browsers. Past this, the docs show the defaults only.
+MAX_COMBOS = 16
+
+
+def _combination_count(cfg: Config) -> int:
+    import math
+
+    return math.prod(len(c.options) for c in cfg.metadata.choices) if cfg.metadata.choices else 0
+
+
 def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
     """Every way of answering the choices: one option per choice, every
-    combination, the all-default one first."""
+    combination, the all-default one first. Only the default past MAX_COMBOS."""
     import itertools
 
     cs = cfg.metadata.choices
     if not cs:
         return []
     ordered = [sorted(c.options, key=lambda o: o.id != c.default) for c in cs]
+    if _combination_count(cfg) > MAX_COMBOS:
+        return [[(c, o[0]) for c, o in zip(cs, ordered, strict=True)]]
     return [list(zip(cs, picks, strict=True)) for picks in itertools.product(*ordered)]
+
+
+def _capped_note(cfg: Config, runtime: str) -> str:
+    """What the docs say in place of the choices once they are past
+    MAX_COMBOS, or "" when every combination is listed."""
+    count = _combination_count(cfg)
+    if count <= MAX_COMBOS:
+        return ""
+    cs = cfg.metadata.choices
+    where = "its jail from `appjail-director.yml`" if runtime == "appjail" else "its service from `compose.yaml`"
+    # Every option only keeps or drops services (the default drops none).
+    if all(not (o.profile or o.env or o.ask or o.service_yaml or o.env_lines or o.director_dep or o.env_appjail)
+           for c in cs for o in c.options):
+        return f"These files run every part. To leave one out, delete {where}."
+    picks = ", ".join(f"{c.label}: {o.label}" for c in cs for o in c.options if o.id == c.default)
+    return f"These files use the defaults ({picks}). The {count} other ways are too many to list here; change the files by hand."
 
 
 def _choice_variants(cfg: Config) -> list[tuple[list[tuple[Any, Any]], str, str]]:
@@ -430,7 +460,7 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
     README lists ``combos`` flat. ``choices`` is the declaration itself.
     """
     if not cfg.metadata.choices or not cfg.compose_text:
-        return {"choices": [], "combos": [], "tree": None}
+        return {"choices": [], "combos": [], "tree": None, "capped": {"podman": "", "appjail": ""}}
     import re as _re
 
     import yaml  # lazy, as everywhere in this module: the wheel build imports it without yaml
@@ -565,7 +595,8 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
     declared = [{"id": c.id, "label": c.label, "doc": c.doc, "default": c.default,
                  "options": [{"id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default} for o in c.options]}
                 for c in cfg.metadata.choices]
-    return {"choices": declared, "combos": combos, "tree": tree(0, ())}
+    return {"choices": declared, "combos": combos, "tree": tree(0, ()),
+            "capped": {r: _capped_note(cfg, r) for r in ("podman", "appjail")}}
 
 
 def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
@@ -825,6 +856,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
 
     cc = _choice_context(cfg, context["env"])
     context["choices"], context["combos"], context["choice_tree"] = cc["choices"], cc["combos"], cc["tree"]
+    context["choices_capped"] = cc["capped"]
     # A stack whose author wrote the whole director: the README shows that,
     # not the one-service template, with the jail templates it ships.
     authored = _authored_director(cfg)
