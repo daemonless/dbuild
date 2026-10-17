@@ -1055,17 +1055,35 @@ class TestChoiceCap(unittest.TestCase):
         self.assertEqual(len(ctx["combos"]), 16)
         self.assertEqual(ctx["choices_capped"], {"podman": "", "appjail": ""})
 
-    def test_past_the_cap_only_the_defaults(self):
+    def test_past_the_cap_the_readme_shows_the_defaults(self):
         ctx, outputs, errors = self._ctx(10)
         self.assertEqual(errors, [])
-        self.assertEqual(len(ctx["combos"]), 1)
-        self.assertTrue(ctx["combos"][0]["default"])
+        self.assertEqual(ctx["choices_mode"], "merged")
+        self.assertEqual(len(ctx["combos"]), 1, "the README needs the default alone")
+        self.assertEqual(len(ctx["all_combos"]()), 1024, "the site merges them all")
         self.assertIn("app9:", ctx["combos"][0]["compose_text"], "the default runs every app")
         readme = outputs["README.md"]
         self.assertIn("To leave one out, delete its service from `compose.yaml`.", readme)
         self.assertNotIn("Left out", readme.split("### Podman Compose", 1)[1].split("###", 1)[0],
                          "no heading per combination")
         self.assertLess(len(readme), 50_000)
+
+    def test_the_site_merges_them_into_one_block(self):
+        import jinja2
+
+        ctx, _, _ = self._ctx(10)
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(Path(docs.__file__).parent / "templates")))
+        page = env.get_template("README.mkdocs.j2").render(dict(ctx, render_mode="mkdocs"))
+        self.assertEqual(page.count('class="deploy-merged"'), 2, "one per runtime")
+        self.assertLessEqual(page.count('class="deploy-combo"'), 2, "at most all-off, kept whole")
+        self.assertEqual(page.count('class="toggle"'), 20, "ten switches per runtime")
+        self.assertLess(len(page), 120_000)
+
+    def test_past_the_merge_limit_defaults_only(self):
+        ctx, _, errors = self._ctx(13)
+        self.assertEqual(errors, [])
+        self.assertEqual(ctx["choices_mode"], "capped")
+        self.assertEqual(len(ctx["combos"]), 1)
 
 
 class TestSiteAlerts(unittest.TestCase):

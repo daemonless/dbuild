@@ -88,10 +88,11 @@ services:
 
 {#- option: one of a choice's options (see dbuild.choices); its director
     carries the service dbuild supplies and its .env the option's values. #}
-{%- macro appjail_director_snippet(override_port=None, option=None) -%}
+{%- macro appjail_director_snippet(override_port=None, option=None, one_zip=false) -%}
 {%- set appjail = option.appjail if option else appjail %}
 {%- set env = option.appjail_env if option else env %}
-{%- set zip = name ~ "-appjail" ~ ("-" ~ option.id | replace(".", "-") if option and not option.default else "") %}
+{#- one_zip: the site's merged block, one download whatever the picks. #}
+{%- set zip = name ~ "-appjail" ~ ("-" ~ option.id | replace(".", "-") if option and not option.default and not one_zip else "") %}
 {%- set authored_dir = option.director_text if option else director_override_text %}
 {%- set authored_env = option.director_env_text if option else director_override_env %}
 {%- if authored_dir %}
@@ -430,7 +431,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 {{ choices_capped.podman }}
 {%- endif %}
-{%- for cb in combos %}
+{%- for cb in (combos[:1] if choices_capped.podman else combos) %}
 {%- if not choices_capped.podman %}
 
 #### {{ cb.label }}{% if cb.default %} (default){% endif %}
@@ -508,7 +509,7 @@ Save as `compose.yaml`, then run `podman-compose up -d`.
 
 {{ choices_capped.appjail }}
 {%- endif %}
-{%- for cb in combos %}
+{%- for cb in (combos[:1] if choices_capped.appjail else combos) %}
 {%- if not choices_capped.appjail %}
 
 #### {{ cb.label }}{% if cb.default %} (default){% endif %}

@@ -20,8 +20,8 @@ except ImportError:
 import dataclasses
 
 import dbuild
+from dbuild import choice_merge, log
 from dbuild import choices as choices_mod
-from dbuild import log
 from dbuild.config import (
     DEFAULT_COMMUNITY,
     AppTestConfig,
@@ -323,10 +323,13 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
     return text
 
 
-# Each combination is a full set of files on the page, so they multiply:
-# crafting-apps' ten on/off choices made 2048, a 42 MB page that crashed
-# browsers. Past this, the docs show the defaults only.
+# Each combination listed is a full set of files on the page, so they
+# multiply: crafting-apps' ten on/off choices made 2048, a 42 MB page that
+# crashed browsers. Up to MAX_COMBOS they are listed; past it the site merges
+# them into one block (choice_merge) and the GitHub README shows the defaults.
+# Past MAX_MERGED even the merge's proof is too much work: defaults only.
 MAX_COMBOS = 16
+MAX_MERGED = 4096
 
 
 # GitHub's alert blockquote (> [!WARNING]) -> the site's admonition. The site
@@ -353,47 +356,60 @@ def _combination_count(cfg: Config) -> int:
     return math.prod(len(c.options) for c in cfg.metadata.choices) if cfg.metadata.choices else 0
 
 
+def _choices_mode(cfg: Config) -> str:
+    """"list" every combination, "merged" one block on the site, "capped"
+    the defaults only. "" without choices."""
+    count = _combination_count(cfg)
+    if not count:
+        return ""
+    return "list" if count <= MAX_COMBOS else "merged" if count <= MAX_MERGED else "capped"
+
+
 def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
     """Every way of answering the choices: one option per choice, every
-    combination, the all-default one first. Only the default past MAX_COMBOS."""
+    combination, the all-default one first. Only the default past MAX_MERGED."""
     import itertools
 
     cs = cfg.metadata.choices
     if not cs:
         return []
     ordered = [sorted(c.options, key=lambda o: o.id != c.default) for c in cs]
-    if _combination_count(cfg) > MAX_COMBOS:
+    if _combination_count(cfg) > MAX_MERGED:
         return [[(c, o[0]) for c, o in zip(cs, ordered, strict=True)]]
     return [list(zip(cs, picks, strict=True)) for picks in itertools.product(*ordered)]
 
 
 def _capped_note(cfg: Config, runtime: str) -> str:
     """What the docs say in place of the choices once they are past
-    MAX_COMBOS, or "" when every combination is listed."""
+    MAX_COMBOS (the README; the site when the merge fails), or "" when every
+    combination is listed."""
     count = _combination_count(cfg)
     if count <= MAX_COMBOS:
         return ""
     cs = cfg.metadata.choices
     where = "its jail from `appjail-director.yml`" if runtime == "appjail" else "its service from `compose.yaml`"
     # Every option only keeps or drops services (the default drops none).
-    if all(not (o.profile or o.env or o.ask or o.service_yaml or o.env_lines or o.director_dep or o.env_appjail)
-           for c in cs for o in c.options):
+    if all(_pure(o) for c in cs for o in c.options):
         return f"These files run every part. To leave one out, delete {where}."
     picks = ", ".join(f"{c.label}: {o.label}" for c in cs for o in c.options if o.id == c.default)
     return f"These files use the defaults ({picks}). The {count} other ways are too many to list here; change the files by hand."
 
 
-def _choice_variants(cfg: Config) -> list[tuple[list[tuple[Any, Any]], str, str]]:
-    """(pairs, compose text, env text) for every combination that is not the
-    default. The files people copy, one per combination."""
-    out = []
-    for pairs in _combinations(cfg):
-        if all(o.id == c.default for c, o in pairs):
-            continue
-        opts = [o for _, o in pairs]
-        compose_text = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, opts)
-        out.append((pairs, compose_text, choices_mod.env_with_options(cfg.example_env, pairs)))
-    return out
+def _pure(o) -> bool:
+    """An option that does nothing but keep or drop services."""
+    return not (o.profile or o.env or o.ask or o.service_yaml or o.env_lines or o.director_dep or o.env_appjail)
+
+
+def _toggle(c) -> dict | None:
+    """{"on", "off"} option ids for a choice that only keeps a part or drops
+    it (crafting-apps' apps): the site shows it as one switch, not a row."""
+    if len(c.options) != 2:
+        return None
+    on = next((o for o in c.options if o.id == c.default), None)
+    off = next((o for o in c.options if o.id != c.default), None)
+    if on is None or off is None or on.drop or not off.drop or not _pure(on) or not _pure(off):
+        return None
+    return {"on": on.id, "off": off.id}
 
 
 def _authored_director(cfg: Config) -> dict | None:
@@ -478,123 +494,141 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
     README lists ``combos`` flat. ``choices`` is the declaration itself.
     """
     if not cfg.metadata.choices or not cfg.compose_text:
-        return {"choices": [], "combos": [], "tree": None, "capped": {"podman": "", "appjail": ""}}
+        return {"choices": [], "combos": [], "all_combos": list, "tree": None, "mode": "", "merge": None,
+                "capped": {"podman": "", "appjail": ""}}
     import re as _re
 
     import yaml  # lazy, as everywhere in this module: the wheel build imports it without yaml
 
-    variants = {choices_mod.variant_suffix(pairs): (ct, et) for pairs, ct, et in _choice_variants(cfg)}
     engine_services = {ENGINE["service"] for ENGINE in choices_mod.ENGINES.values() if ENGINE.get("service")}
     authored = _authored_director(cfg)
-    combos = []
-    for pairs in _combinations(cfg):
-        opts = [o for _, o in pairs]
-        suffix = choices_mod.variant_suffix(pairs)
-        is_default = suffix == ""
-        if is_default:
-            ct, et = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, None), cfg.example_env
-            compose_file, env_file = "compose.yaml", "example.env"
-        else:
-            ct, et = variants[suffix]
-            compose_file, env_file = f"compose.{suffix}.yaml", f"example.{suffix}.env"
-        # The AppJail side: the template director grows each engine's jail,
-        # the .env takes every option's values with the host being the jail's
-        # name.
-        aj = dict(cfg.metadata.appjail) if isinstance(cfg.metadata.appjail, dict) else {}
-        values: dict[str, str] = {}
-        asks = []
-        for o in opts:
-            if o.director_dep:
-                aj["depends_on"] = [*(aj.get("depends_on") or []), o.director_dep]
-        # A sidecar is named as its compose service, so an option that drops
-        # the service (grimmory's own MariaDB) drops the jail too.
-        dropped = {d for o in opts for d in o.drop}
-        if dropped and aj.get("depends_on"):
-            aj["depends_on"] = [d for d in aj["depends_on"] if d.get("name") not in dropped]
-        for o in opts:
-            values.update(o.env)
-            values.update(o.env_appjail)
-            for ln in o.env_lines:
-                k, _, rest = ln.partition("=")
-                values.setdefault(k, rest.partition("  #")[0].strip())
-            for a in o.ask:
-                values.setdefault(a.name, a.default)
-                asks.append({"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": a.values})
-        aj_env, seen = [], set()
-        for e in context_env:
-            item = dict(e)
-            if item["name"] in values:
-                item["default"] = values[item["name"]]
-                item.pop("placeholder", None)
-            seen.add(item["name"])
-            aj_env.append(item)
-        for k, v in values.items():
-            if k not in seen:
-                aj_env.append({"name": k, "default": v, "env_only": True})
-        # What this combination runs, in words, before any YAML. Compose
-        # references resolve the way compose would: the .env value, else the
-        # ${VAR:-fallback}, else nothing.
-        env_values: dict[str, str] = {}
-        for ln in et.splitlines():
-            k, sep, v = ln.partition("=")
-            if sep and k.strip() and not k.lstrip().startswith("#"):
-                env_values[k.strip()] = v.partition("  #")[0].strip()
-        resolve = lambda text, ev=env_values: _re.sub(  # noqa: E731
-            r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}",
-            lambda m: ev.get(m.group(1)) or (m.group(2) or ""), text)
-        parsed = (yaml.safe_load(ct) or {}).get("services") or {}
-        parts, jails = [], []
-        for sname, svc in parsed.items():
-            img = resolve(str((svc or {}).get("image", "")))
-            short = img.split("/")[-1]
-            kind = "db" if sname in engine_services else "app"
-            parts.append({"name": sname, "image": short, "kind": kind})
-            jails.append({"name": sname.replace("-", "_") if kind == "app" else f"{cfg.image}_{sname}".replace("-", "_"), "image": short, "kind": kind})
-        if any(o.id == "external" for o in opts):
-            parts.append({"name": "your database", "image": "not run here", "kind": "none"})
-            jails.append({"name": "your database", "image": "not run here", "kind": "none"})
-        folders = []
-        for svc in parsed.values():
-            for v in (svc or {}).get("volumes") or []:
-                if isinstance(v, str):
-                    bits = v.split(":")
-                    src, ro = resolve(bits[0]), len(bits) > 2 and "ro" in bits[2].split(",")
-                else:
-                    src, ro = resolve(str((v or {}).get("source", ""))), bool((v or {}).get("read_only"))
-                if ro or not src.startswith("/") or src.startswith(("/etc/", "/dev/", "/var/run/", "/usr/")):
-                    continue
-                if src not in folders:
-                    folders.append(src)
-        for o in opts:
-            for ln in o.env_lines:
-                k, _, v = ln.partition("=")
-                if k.endswith("_LOCATION") and v and v not in folders:
-                    folders.append(v)
-        folders = [_re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, f) for f in folders]
-        director_text = director_env_text = ""
-        if authored is not None:
-            sliced = _director_for_option(authored, cfg, None if is_default else opts)
-            director_text = _render_director_override(sliced)
-            director_env_text = _render_override_env(sliced, {"name": cfg.image, "env": aj_env})
-            jails = [{"name": str((svc or {}).get("name", n)), "image": next((p["image"] for p in parts if p["name"] == n), ""), "kind": "app"}
-                     for n, svc in sliced["services"].items()]
-        tpl = next((o for o in opts if o.jail_template_file), None)
-        combos.append({
-            "id": suffix or "default", "default": is_default,
-            "selections": [{"choice": c.id, "choice_label": c.label, "option": o.id, "label": o.label, "default": o.id == c.default} for c, o in pairs],
-            "label": ", ".join(o.label for _, o in pairs),
-            "doc": " ".join(o.doc for _, o in pairs if o.doc),
-            "parts": parts, "jails": jails, "folders": folders,
-            "appjail": aj, "appjail_env": aj_env,
-            "director_text": director_text, "director_env_text": director_env_text,
-            "jail_template_file": tpl.jail_template_file if tpl else "", "jail_template": tpl.jail_template if tpl else "",
-            "ask": asks,
-            "compose_file": compose_file, "env_file": env_file,
-            "compose_text": ct, "example_env": et,
-            "compose_text_site": _site_placeholders(ct),
-            "example_env_site": _site_placeholders(et, env_file=True),
-            "zip": f"{cfg.image}-podman" + ("" if is_default else "-" + suffix.replace(".", "-")),
-        })
+
+    def build(pair_list: list) -> list[dict]:
+        combos = []
+        for pairs in pair_list:
+            opts = [o for _, o in pairs]
+            suffix = choices_mod.variant_suffix(pairs)
+            is_default = suffix == ""
+            if is_default:
+                ct, et = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, None), cfg.example_env
+                compose_file, env_file = "compose.yaml", "example.env"
+            else:
+                ct = choices_mod.flatten_compose(cfg.compose_text, cfg.compose_data, opts)
+                et = choices_mod.env_with_options(cfg.example_env, pairs)
+                compose_file, env_file = f"compose.{suffix}.yaml", f"example.{suffix}.env"
+            # The AppJail side: the template director grows each engine's jail,
+            # the .env takes every option's values with the host being the jail's
+            # name.
+            aj = dict(cfg.metadata.appjail) if isinstance(cfg.metadata.appjail, dict) else {}
+            values: dict[str, str] = {}
+            asks = []
+            for o in opts:
+                if o.director_dep:
+                    aj["depends_on"] = [*(aj.get("depends_on") or []), o.director_dep]
+            # A sidecar is named as its compose service, so an option that drops
+            # the service (grimmory's own MariaDB) drops the jail too.
+            dropped = {d for o in opts for d in o.drop}
+            if dropped and aj.get("depends_on"):
+                aj["depends_on"] = [d for d in aj["depends_on"] if d.get("name") not in dropped]
+            for o in opts:
+                values.update(o.env)
+                values.update(o.env_appjail)
+                for ln in o.env_lines:
+                    k, _, rest = ln.partition("=")
+                    values.setdefault(k, rest.partition("  #")[0].strip())
+                for a in o.ask:
+                    values.setdefault(a.name, a.default)
+                    asks.append({"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": a.values})
+            aj_env, seen = [], set()
+            for e in context_env:
+                item = dict(e)
+                if item["name"] in values:
+                    item["default"] = values[item["name"]]
+                    item.pop("placeholder", None)
+                seen.add(item["name"])
+                aj_env.append(item)
+            for k, v in values.items():
+                if k not in seen:
+                    aj_env.append({"name": k, "default": v, "env_only": True})
+            # What this combination runs, in words, before any YAML. Compose
+            # references resolve the way compose would: the .env value, else the
+            # ${VAR:-fallback}, else nothing.
+            env_values: dict[str, str] = {}
+            for ln in et.splitlines():
+                k, sep, v = ln.partition("=")
+                if sep and k.strip() and not k.lstrip().startswith("#"):
+                    env_values[k.strip()] = v.partition("  #")[0].strip()
+            resolve = lambda text, ev=env_values: _re.sub(  # noqa: E731
+                r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}",
+                lambda m: ev.get(m.group(1)) or (m.group(2) or ""), text)
+            parsed = (yaml.safe_load(ct) or {}).get("services") or {}
+            parts, jails = [], []
+            for sname, svc in parsed.items():
+                img = resolve(str((svc or {}).get("image", "")))
+                short = img.split("/")[-1]
+                kind = "db" if sname in engine_services else "app"
+                parts.append({"name": sname, "image": short, "kind": kind})
+                jails.append({"name": sname.replace("-", "_") if kind == "app" else f"{cfg.image}_{sname}".replace("-", "_"), "image": short, "kind": kind})
+            if any(o.id == "external" for o in opts):
+                parts.append({"name": "your database", "image": "not run here", "kind": "none"})
+                jails.append({"name": "your database", "image": "not run here", "kind": "none"})
+            folders = []
+            for svc in parsed.values():
+                for v in (svc or {}).get("volumes") or []:
+                    if isinstance(v, str):
+                        bits = v.split(":")
+                        src, ro = resolve(bits[0]), len(bits) > 2 and "ro" in bits[2].split(",")
+                    else:
+                        src, ro = resolve(str((v or {}).get("source", ""))), bool((v or {}).get("read_only"))
+                    if ro or not src.startswith("/") or src.startswith(("/etc/", "/dev/", "/var/run/", "/usr/")):
+                        continue
+                    if src not in folders:
+                        folders.append(src)
+            for o in opts:
+                for ln in o.env_lines:
+                    k, _, v = ln.partition("=")
+                    if k.endswith("_LOCATION") and v and v not in folders:
+                        folders.append(v)
+            folders = [_re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, f) for f in folders]
+            director_text = director_env_text = ""
+            if authored is not None:
+                sliced = _director_for_option(authored, cfg, None if is_default else opts)
+                director_text = _render_director_override(sliced)
+                director_env_text = _render_override_env(sliced, {"name": cfg.image, "env": aj_env})
+                jails = [{"name": str((svc or {}).get("name", n)), "image": next((p["image"] for p in parts if p["name"] == n), ""), "kind": "app"}
+                         for n, svc in sliced["services"].items()]
+            tpl = next((o for o in opts if o.jail_template_file), None)
+            combos.append({
+                "id": suffix or "default", "default": is_default,
+                "selections": [{"choice": c.id, "choice_label": c.label, "option": o.id, "label": o.label, "default": o.id == c.default} for c, o in pairs],
+                "label": ", ".join(o.label for _, o in pairs),
+                "doc": " ".join(o.doc for _, o in pairs if o.doc),
+                "docs": [o.doc for _, o in pairs if o.doc],
+                "parts": parts, "jails": jails, "folders": folders,
+                "appjail": aj, "appjail_env": aj_env,
+                "director_text": director_text, "director_env_text": director_env_text,
+                "jail_template_file": tpl.jail_template_file if tpl else "", "jail_template": tpl.jail_template if tpl else "",
+                "ask": asks,
+                "compose_file": compose_file, "env_file": env_file,
+                "compose_text": ct, "example_env": et,
+                "compose_text_site": _site_placeholders(ct),
+                "example_env_site": _site_placeholders(et, env_file=True),
+                "zip": f"{cfg.image}-podman" + ("" if is_default else "-" + suffix.replace(".", "-")),
+            })
+        return combos
+
+    pair_list = _combinations(cfg)
+    mode = _choices_mode(cfg)
+    # Merged: the README and every other caller need the default alone; the
+    # site's template asks for the rest (all_combos), built once.
+    combos = build(pair_list[:1] if mode == "merged" else pair_list)
+    full: list[list[dict]] = []
+
+    def all_combos() -> list[dict]:
+        if not full:
+            full.append(combos if mode != "merged" else build(pair_list))
+        return full[0]
+
     by_key = {tuple(sel["option"] for sel in cb["selections"]): cb for cb in combos}
 
     def tree(level: int, picked: tuple) -> dict | None:
@@ -610,10 +644,25 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
                           "combo": by_key.get(key) if level == len(cs) - 1 else None})
         return {"id": c.id, "label": c.label, "doc": c.doc, "options": nodes}
 
-    declared = [{"id": c.id, "label": c.label, "doc": c.doc, "default": c.default,
+    declared = [{"id": c.id, "label": c.label, "doc": c.doc, "default": c.default, "toggle": _toggle(c),
                  "options": [{"id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default} for o in c.options]}
                 for c in cfg.metadata.choices]
-    return {"choices": declared, "combos": combos, "tree": tree(0, ()),
+    choice_ids = [c.id for c in cfg.metadata.choices]
+    options = [[o.id for o in sorted(c.options, key=lambda o: o.id != c.default)] for c in cfg.metadata.choices]
+    def merge(rendered: list[str]) -> dict | None:
+        """The site's one block for the combinations' renders (in
+        all_combos' order), or None when they do not merge."""
+        keys = [tuple(sel["option"] for sel in cb["selections"]) for cb in all_combos()]
+        got = choice_merge.merge(dict(zip(keys, (r.split("\n") for r in rendered), strict=True)), keys[0], options)
+        if got is None:
+            return None
+        lines, exceptions = got
+        markdown, when = choice_merge.to_markdown(lines, choice_ids)
+        return {"markdown": markdown, "when": choice_merge.when_attr(when),
+                "exceptions": [{"key": ";".join(f"{c}={o}" for c, o in zip(choice_ids, k, strict=True)),
+                                "text": rendered[keys.index(k)]} for k in exceptions]}
+
+    return {"choices": declared, "combos": combos, "all_combos": all_combos, "tree": tree(0, ()), "mode": mode, "merge": merge,
             "capped": {r: _capped_note(cfg, r) for r in ("podman", "appjail")}}
 
 
@@ -879,6 +928,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     cc = _choice_context(cfg, context["env"])
     context["choices"], context["combos"], context["choice_tree"] = cc["choices"], cc["combos"], cc["tree"]
     context["choices_capped"] = cc["capped"]
+    context["choices_mode"], context["choice_merge"], context["all_combos"] = cc["mode"], cc["merge"], cc["all_combos"]
     # A stack whose author wrote the whole director: the README shows that,
     # not the one-service template, with the jail templates it ships.
     authored = _authored_director(cfg)
