@@ -44,6 +44,8 @@
 {% if cb.doc %}
 {{ cb.doc }}
 {% endif %}
+{#- No .env at all (SQLite: nothing to set): no step asking to fill one in. #}
+{% if cb.example_env_site | trim -%}
 **1.** Save as `.env`{% if cb.ask %} and fill in {{ cb.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
 
 ```env { data-zip-bundle="{{ cb.zip }}" data-zip-filename=".env" }
@@ -51,6 +53,9 @@
 ```
 
 **2.** Save as `compose.yaml`:
+{%- else -%}
+Save as `compose.yaml`:
+{%- endif %}
 
 ```yaml { data-zip-bundle="{{ cb.zip }}" data-zip-filename="compose.yaml" }
 {{ cb.compose_text_site | trim }}

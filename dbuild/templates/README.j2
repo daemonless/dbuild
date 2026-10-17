@@ -440,6 +440,8 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 {{ cb.doc }}
 {%- endif %}
 
+{%- if cb.example_env | trim %}
+
 **1.** Save as `.env`{% if cb.ask %} and fill in {{ cb.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
 
 ```env { data-zip-bundle="{{ cb.zip }}" data-zip-filename=".env" }
@@ -447,6 +449,10 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ```
 
 **2.** Save as `compose.yaml`:
+{%- else %}
+
+Save as `compose.yaml`:
+{%- endif %}
 
 ```yaml { data-zip-bundle="{{ cb.zip }}" data-zip-filename="compose.yaml" }
 {{ cb.compose_text | trim }}
