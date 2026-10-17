@@ -1,4 +1,6 @@
 {% extends "README.j2" %}
+{#- GitHub alerts in the author's text become admonitions here (_site_alerts). #}
+{%- set readme, notes = readme_site, notes_site %}
 
 {#- What an option runs, before any YAML: the images, then the host folders
     the data lands in. Plain words; markdown, not a raw HTML block (a block

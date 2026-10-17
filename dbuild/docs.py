@@ -329,6 +329,24 @@ def _site_placeholders(text: str, env_file: bool = False) -> str:
 MAX_COMBOS = 16
 
 
+# GitHub's alert blockquote (> [!WARNING]) -> the site's admonition. The site
+# renders the alert as a quote with "[!WARNING]" in it.
+_GITHUB_ALERT_RE = re.compile(r"(?m)^> ?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n((?:>.*(?:\n|$))*)")
+_ADMONITION = {"NOTE": "note", "TIP": "tip", "IMPORTANT": 'info "Important"', "WARNING": "warning", "CAUTION": 'danger "Caution"'}
+
+
+def _site_alerts(text: Any) -> Any:
+    """Markdown with GitHub alerts as admonitions, for the site's render."""
+    if not isinstance(text, str):
+        return text
+
+    def admonition(m: re.Match) -> str:
+        body = [re.sub(r"^> ?", "", ln) for ln in m.group(2).splitlines()]
+        return f"!!! {_ADMONITION[m.group(1)]}\n\n" + "".join(f"    {ln}\n" if ln.strip() else "\n" for ln in body)
+
+    return _GITHUB_ALERT_RE.sub(admonition, text)
+
+
 def _combination_count(cfg: Config) -> int:
     import math
 
@@ -679,6 +697,10 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "healthcheck": meta.healthcheck,
         "notes": meta.notes,
         "readme": meta.readme,
+        # The same for README.mkdocs.j2, which swaps them in.
+        "notes_site": _site_alerts(meta.notes),
+        "readme_site": dataclasses.replace(meta.readme, **{f.name: _site_alerts(getattr(meta.readme, f.name)) for f in dataclasses.fields(meta.readme)})
+        if dataclasses.is_dataclass(meta.readme) else meta.readme,
         "community": community_raw,
         "community_name": community_name,
         "community_url": community_url,

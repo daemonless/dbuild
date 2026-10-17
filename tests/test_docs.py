@@ -1066,3 +1066,18 @@ class TestChoiceCap(unittest.TestCase):
         self.assertNotIn("Left out", readme.split("### Podman Compose", 1)[1].split("###", 1)[0],
                          "no heading per combination")
         self.assertLess(len(readme), 50_000)
+
+
+class TestSiteAlerts(unittest.TestCase):
+    def test_github_alert_becomes_an_admonition(self):
+        md = "intro\n\n> [!WARNING]\n> **Careful.** It breaks.\n>\n> Keep a backup.\n\nafter\n"
+        self.assertEqual(docs._site_alerts(md),
+                         "intro\n\n!!! warning\n\n    **Careful.** It breaks.\n\n    Keep a backup.\n\nafter\n")
+
+    def test_a_plain_quote_is_left_alone(self):
+        md = "> Just a quote.\n"
+        self.assertEqual(docs._site_alerts(md), md)
+
+    def test_important_and_caution_keep_their_word(self):
+        self.assertTrue(docs._site_alerts("> [!IMPORTANT]\n> x\n").startswith('!!! info "Important"\n'))
+        self.assertTrue(docs._site_alerts("> [!CAUTION]\n> x\n").startswith('!!! danger "Caution"\n'))
