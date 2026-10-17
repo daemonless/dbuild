@@ -10,23 +10,57 @@
     under it one block of files per combination, all but the default hidden.
     deploy-choices.js on the site shows the block that matches the pills and
     keeps Podman and AppJail on the same answers. Markdown inside the HTML
-    (md_in_html) so the fences keep their zip attributes. #}
+    (md_in_html) so the fences keep their zip attributes.
+    Past MAX_COMBOS ("merged"): every combination is rendered here, and
+    choice_merge folds them into one block whose varying lines carry the
+    picks that keep them; the script shows those. Combinations the merge
+    cannot express follow it whole. #}
 {%- macro choice_form(runtime) -%}
-{%- if choices_capped[runtime] %}
+{%- set merged = none %}
+{%- if choices_mode == "merged" %}
+{%- set rendered = [] %}
+{%- for cb in all_combos() %}{% set _ = rendered.append(combo_files(cb, runtime, true)) %}{% endfor %}
+{%- set merged = choice_merge(rendered) %}
+{%- endif %}
+{%- if choices_capped[runtime] and not merged %}
 {{ choices_capped[runtime] }}
 
 {{ combo_files(combos[0], runtime) }}
 {% else -%}
-<div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}" markdown>
-{% for c in choices %}
+<div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}"{% if choices | selectattr("toggle") | list %} data-order="{{ choices | map(attribute='id') | join(' ') }}"{% endif %} markdown>
+{% for c in choices if not c.toggle %}
 
 **{{ c.label }}** {{ c.doc }}
 {: .choice data-choice="{{ c.id }}" }
 
 <div class="opts" data-choice="{{ c.id }}">{% for o in c.options %}<button type="button" data-option="{{ o.id }}"{% if o.default %} data-default aria-pressed="true"{% else %} aria-pressed="false"{% endif %}{% if o.doc %} title="{{ o.doc | replace('"', "'") }}"{% endif %}>{{ o.label }}</button>{% endfor %}</div>
 {% endfor %}
+{%- set toggles = choices | selectattr("toggle") | list %}
+{%- if toggles %}
+
+<div class="toggles">{% for c in toggles %}<button type="button" class="toggle" data-choice="{{ c.id }}" data-on="{{ c.toggle.on }}" data-off="{{ c.toggle.off }}" aria-pressed="true" title="{{ c.doc | replace('"', "'") }}"><span class="t-name">{{ c.label }}</span><span class="t-doc">{{ c.doc }}</span></button>{% endfor %}</div>
+{%- if toggles | length > 3 %}
+<p class="toggle-all"><button type="button" data-toggle-all="on">All</button><button type="button" data-toggle-all="off">None</button></p>
+{%- endif %}
+{%- endif %}
 
 </div>
+{%- if merged %}
+
+<div class="deploy-merged" data-when="{{ merged.when }}" markdown>
+
+{{ merged.markdown }}
+
+</div>
+{% for ex in merged.exceptions %}
+
+<div class="deploy-combo" data-key="{{ ex.key }}" hidden markdown>
+
+{{ ex.text }}
+
+</div>
+{% endfor %}
+{%- else %}
 {% for cb in combos %}
 
 <div class="deploy-combo" data-key="{% for sel in cb.selections %}{{ sel.choice }}={{ sel.option }}{{ ";" if not loop.last }}{% endfor %}"{% if not cb.default %} hidden{% endif %} markdown>
@@ -36,19 +70,26 @@
 </div>
 {% endfor %}
 {%- endif %}
+{%- endif %}
 {%- endmacro %}
 
-{%- macro combo_files(cb, runtime) -%}
+{#- merged: one item per line (images, folders, option docs), so the merge
+    can keep or drop each; one zip name whatever the picks. #}
+{%- macro combo_files(cb, runtime, merged=false) -%}
 {% if runtime == "podman" %}
-{{ you_get(cb, cb.parts, "container") }}
-{% if cb.doc %}
+{{ you_get(cb, cb.parts, "container", merged) }}
+{% if merged %}
+{% for d in cb.docs %}
+{{ d }}
+{% endfor %}
+{% elif cb.doc %}
 {{ cb.doc }}
 {% endif %}
 {#- No .env at all (SQLite: nothing to set): no step asking to fill one in. #}
 {% if cb.example_env_site | trim -%}
 **1.** Save as `.env`{% if cb.ask %} and fill in {{ cb.ask | map(attribute='label') | join(', ') }}{% else %} and fill in what is empty{% endif %}:
 
-```env { data-zip-bundle="{{ cb.zip }}" data-zip-filename=".env" }
+```env { data-zip-bundle="{{ name ~ '-podman' if merged else cb.zip }}" data-zip-filename=".env" }
 {{ cb.example_env_site | trim }}
 ```
 
@@ -57,27 +98,41 @@
 Save as `compose.yaml`:
 {%- endif %}
 
-```yaml { data-zip-bundle="{{ cb.zip }}" data-zip-filename="compose.yaml" }
+```yaml { data-zip-bundle="{{ name ~ '-podman' if merged else cb.zip }}" data-zip-filename="compose.yaml" }
 {{ cb.compose_text_site | trim }}
 ```
 
 Then run `podman-compose up -d`.
 {% else %}
-{{ you_get(cb, cb.jails, "jail") }}
-{% if cb.doc %}
+{{ you_get(cb, cb.jails, "jail", merged) }}
+{% if merged %}
+{% for d in cb.docs %}
+{{ d }}
+{% endfor %}
+{% elif cb.doc %}
 {{ cb.doc }}
 {% endif %}
-{{ appjail_director_snippet(port_var, cb) }}
+{{ appjail_director_snippet(port_var, cb, merged) }}
 
 Save the files above, then run `appjail-director up`.
 {% endif %}
 {%- endmacro %}
 
-{%- macro you_get(o, parts, unit) -%}
+{%- macro you_get(o, parts, unit, merged=false) -%}
+{%- if merged -%}
+{%- for p in parts %}
+<span class="yg">{% if p.kind == "none" %}your own {{ p.name | replace("your database", "database") }}{% else %}`{{ p.image }}`{% endif %}</span>
+{%- endfor %}
+{%- for f in o.folders %}
+<span class="yf">`{{ f }}`</span>
+{%- endfor %}
+{: .you-get }
+{%- else -%}
 {%- set imgs = [] -%}
 {%- for p in parts %}{% if p.kind == "none" %}{% set _ = imgs.append("your own " ~ p.name | replace("your database", "database")) %}{% else %}{% set _ = imgs.append("`" ~ p.image ~ "`") %}{% endif %}{% endfor -%}
 {{ imgs | join(" · ") }}{% if o.folders %} — data in {% for f in o.folders %}`{{ f }}`{{ ", " if not loop.last }}{% endfor %}{% endif %}
 {: .you-get }
+{%- endif %}
 {%- endmacro %}
 
 {% block frontmatter -%}
