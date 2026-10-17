@@ -1081,3 +1081,18 @@ class TestSiteAlerts(unittest.TestCase):
     def test_important_and_caution_keep_their_word(self):
         self.assertTrue(docs._site_alerts("> [!IMPORTANT]\n> x\n").startswith('!!! info "Important"\n'))
         self.assertTrue(docs._site_alerts("> [!CAUTION]\n> x\n").startswith('!!! danger "Caution"\n'))
+
+
+class TestNoEnvStep(unittest.TestCase):
+    def test_a_combination_without_env_has_no_env_step(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            (tmp / "compose.yaml").write_text(_toggles_compose(2))
+            (tmp / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(tmp):
+                cfg = dbuild_config.load(tmp)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), tmp)
+        self.assertEqual(errors, [])
+        podman = outputs["README.md"].split("### Podman Compose", 1)[1].split("### AppJail", 1)[0]
+        self.assertNotIn("Save as `.env`", podman, "no .env to fill in")
+        self.assertIn("Save as `compose.yaml`:", podman)
