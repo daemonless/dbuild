@@ -1114,3 +1114,31 @@ class TestNoEnvStep(unittest.TestCase):
         podman = outputs["README.md"].split("### Podman Compose", 1)[1].split("### AppJail", 1)[0]
         self.assertNotIn("Save as `.env`", podman, "no .env to fill in")
         self.assertIn("Save as `compose.yaml`:", podman)
+
+
+class TestAccessLine(unittest.TestCase):
+    def test_access_is_from_another_machine_not_localhost(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / ".daemonless" / "config.yaml").write_text("cit:\n  mode: health\n")
+            (repo / "compose.yaml").write_text(
+                "x-daemonless:\n"
+                "  title: \"Web\"\n"
+                "  description: \"A web app.\"\n"
+                "  category: \"Utilities\"\n"
+                "  upstream_url: \"https://example.com\"\n"
+                "services:\n"
+                "  web:\n"
+                "    image: ghcr.io/daemonless/web:latest\n"
+                "    ports:\n"
+                "      - \"8080:8080\"\n"
+            )
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+        self.assertEqual(errors, [])
+        readme = outputs["README.md"]
+        self.assertIn("Open `http://<server>:8080` from another machine", readme)
+        self.assertNotIn("http://localhost:", readme)

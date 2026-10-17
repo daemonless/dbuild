@@ -571,7 +571,9 @@ Save as `bastille-compose.yml`, then run `bastille up`.
 
 {%- if ports and cit_mode in ("health", "screenshot") %}
 
-Access at: `http://localhost:{{ ports[0].port if render_mode != "mkdocs" else port_var }}`
+{#- Not localhost: a published port is a pf rdr, and pf never redirects the
+    host's own connections to it. #}
+Open `http://<server>:{{ ports[0].port if render_mode != "mkdocs" else port_var }}` from another machine (the server's own browser can't use a published port).
 {%- endif %}
 {%- endif %}
 {%- endblock %}
