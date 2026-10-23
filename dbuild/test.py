@@ -1286,14 +1286,15 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     # Determine which backends to run
     if backend_arg == "all":
         backends = ["podman"]
-        if cfg.metadata.appjail and not _appjail_cit_applicable(cfg):
+        if cfg.metadata.appjail is None:
+            pass  # appjail: false
+        elif not _appjail_cit_applicable(cfg):
             log.info("appjail backend skipped: this image declares sidecars (appjail.depends_on); "
                      "the single-jail CIT can't run its stack")
-        elif cfg.metadata.appjail:
-            if AppJailBackend.available():
-                backends.append("appjail")
-            else:
-                log.warn("appjail configured but not installed — skipping appjail backend")
+        elif AppJailBackend.available():
+            backends.append("appjail")
+        else:
+            log.warn("appjail configured but not installed — skipping appjail backend")
     else:
         backends = [backend_arg]
 
@@ -1381,6 +1382,7 @@ def _appjail_cit_applicable(cfg) -> bool:
     director bundle is what runs the whole stack on AppJail.
     """
     aj = cfg.metadata.appjail
-    if not aj:
+    # {} is enabled (appjail: true, or no key); only None is appjail: false
+    if aj is None:
         return False
     return not (isinstance(aj, dict) and aj.get("depends_on"))
