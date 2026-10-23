@@ -32,6 +32,20 @@ def secure_origin(url: str) -> str:
     return f"{u.scheme}://{u.netloc}"
 
 
+def frame_is_blank(png: bytes) -> bool:
+    """True when the frame is one flat color (verify's blank test). Without
+    scikit-image nothing counts as blank, as before."""
+    try:
+        from io import BytesIO
+
+        from skimage import io as skio
+
+        from dbuild.verify import is_blank
+    except ImportError:
+        return False
+    return is_blank(skio.imread(BytesIO(png)))
+
+
 def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0, secure_context: bool = False) -> bool:
     """Capture a screenshot of *url* and save to *output*.
 
@@ -101,12 +115,15 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0, secure_
         )
         stable = False
         while time.time() - start_time < max_stability_wait:
-            current_screen = driver.get_screenshot_as_base64()
+            current_screen = driver.get_screenshot_as_png()
             elapsed = time.time() - start_time
-            if last_screen and current_screen == last_screen and elapsed >= min_wait:
-                    print(f"UI stabilized after {elapsed:.2f}s", file=sys.stderr)
-                    stable = True
-                    break
+            # An SPA paints a blank page before its first render; two blank
+            # frames match, but that is not the UI settling.
+            if (last_screen and current_screen == last_screen
+                    and elapsed >= min_wait and not frame_is_blank(current_screen)):
+                print(f"UI stabilized after {elapsed:.2f}s", file=sys.stderr)
+                stable = True
+                break
             last_screen = current_screen
             time.sleep(0.5)
 
