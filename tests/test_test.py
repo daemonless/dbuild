@@ -687,3 +687,57 @@ class TestDiagnosePortFailure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAppJailBackendSelection(unittest.TestCase):
+    """`dbuild test` runs the appjail backend for every image that has AppJail
+    on, including the default (no appjail key) and `appjail: true`, which
+    parse to {}."""
+
+    def _backends(self, meta):
+        from dbuild.config import _parse_appjail
+        cfg = MagicMock()
+        cfg.metadata.appjail = _parse_appjail(meta)
+        cfg.test.puid = False
+        cfg.variants = [MagicMock(tag="latest", puid=None)]
+        args = MagicMock(variant=None, json_output=None, backend="all", puid=None)
+        seen = []
+
+        def fake_test_variant(cfg, variant, test, **kw):
+            seen.append(kw["force_backend"])
+            return 0
+
+        with patch("dbuild.ci.detect") as detect, \
+                patch.object(cit.AppJailBackend, "available", return_value=True), \
+                patch.object(cit, "_test_variant", side_effect=fake_test_variant):
+            detect.return_value.should_skip.return_value = False
+            self.assertEqual(cit.run(cfg, args), 0)
+        return seen
+
+    def test_no_key_is_on(self):
+        self.assertEqual(self._backends({}), ["podman", "appjail"])
+
+    def test_true_is_on(self):
+        self.assertEqual(self._backends({"appjail": True}), ["podman", "appjail"])
+
+    def test_bare_is_on(self):
+        self.assertEqual(self._backends({"appjail": None}), ["podman", "appjail"])
+
+    def test_false_is_off(self):
+        self.assertEqual(self._backends({"appjail": False}), ["podman"])
+
+    def test_custom_config_is_on(self):
+        meta = {"appjail": {"director": {"options": []}}}
+        self.assertEqual(self._backends(meta), ["podman", "appjail"])
+
+    def test_sidecars_skip_appjail(self):
+        meta = {"appjail": {"depends_on": ["postgres"]}}
+        self.assertEqual(self._backends(meta), ["podman"])
+
+    def test_applicable_for_default(self):
+        from dbuild.config import _parse_appjail
+        cfg = MagicMock()
+        cfg.metadata.appjail = _parse_appjail({})
+        self.assertTrue(cit._appjail_cit_applicable(cfg))
+        cfg.metadata.appjail = _parse_appjail({"appjail": False})
+        self.assertFalse(cit._appjail_cit_applicable(cfg))
