@@ -140,6 +140,37 @@ def _remote_image_version(image_ref: str) -> str | None:
     return (data.get("Labels") or {}).get("org.opencontainers.image.version") or None
 
 
+# ── Linux halves ─────────────────────────────────────────────────────
+# Only the shared GitHub workflow builds Linux images (its build-linux job,
+# for images that pass `linux: true`); it pushes them as <tag>-linux-<arch>.
+# Every manifest run, whichever builder makes it, looks them up here so a
+# later run (army's arm64) does not drop them. One whose version is not the
+# FreeBSD images' is left out: a tag never mixes versions.
+
+LINUX_ARCHES = ("amd64", "arm64")
+
+
+def _linux_refs(image: str, tag: str, versions: set[str]) -> list[str]:
+    """The ``<tag>-linux-<arch>`` images of *image* whose version is in *versions*."""
+    refs: list[str] = []
+    for arch in LINUX_ARCHES:
+        ref = f"{image}:{tag}-linux-{arch}"
+        if not _image_available(ref):
+            continue
+        v = _remote_image_version(ref)
+        if v is None or v not in versions:
+            log.warn(f"{ref} is version {v or '?'}, not {' or '.join(sorted(versions)) or '?'} -- left out")
+            continue
+        log.info(f"Found: {ref}")
+        refs.append(ref)
+    return refs
+
+
+def _versions(refs: list[str]) -> set[str]:
+    """The version labels of *refs*, those that have one."""
+    return {v for v in (_remote_image_version(r) for r in refs) if v}
+
+
 # ── Create manifest for one tag ──────────────────────────────────────
 
 def _assemble_and_push(cfg: Config, image_prefix: str, tag: str, arch_refs: list[str]) -> bool:
@@ -199,6 +230,11 @@ def _create_manifest_for_tag(
         log.error(f"No architecture-specific images found for :{tag}")
         return False
 
+    versions = _versions(arch_refs)
+    arch_refs += _linux_refs(cfg.full_image, tag, versions)
+    if mirror_url and mirror_refs:
+        mirror_refs += _linux_refs(f"{mirror_url}/{cfg.image}", tag, versions)
+
     ok = _assemble_and_push(cfg, cfg.full_image, tag, arch_refs)
 
     if mirror_url:
@@ -254,6 +290,9 @@ def _create_versioned_manifest(
         return False
 
     version = next(iter(versions.values()))
+    arch_refs += _linux_refs(cfg.full_image, variant.tag, {version})
+    if mirror_url and mirror_refs:
+        mirror_refs += _linux_refs(f"{mirror_url}/{cfg.image}", variant.tag, {version})
     vtags = [_version_tag(version, variant.tag)]
     for alias in variant.aliases:
         if VERSION_PLACEHOLDER in alias:

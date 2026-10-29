@@ -106,6 +106,12 @@ class TestImageAvailable(unittest.TestCase):
 class TestCreateManifestForTagMirror(unittest.TestCase):
     """Tests for _create_manifest_for_tag()'s Docker Hub mirror handling."""
 
+    def setUp(self):
+        # Never ask a real registry for a version label.
+        p = patch("dbuild.manifest._remote_image_version", return_value="1.0")
+        p.start()
+        self.addCleanup(p.stop)
+
     def _cfg(self):
         return Config(
             image="testapp", registry="ghcr.io/daemonless",
@@ -154,3 +160,54 @@ class TestCreateManifestForTagMirror(unittest.TestCase):
     def test_no_mirror_attempt_without_mirror_url(self, _avail, mock_assemble):
         manifest._create_manifest_for_tag(self._cfg(), "latest", mirror_url=None)
         self.assertEqual(mock_assemble.call_count, 1)
+
+
+class TestLinuxHalves(unittest.TestCase):
+    """The build-linux job's <tag>-linux-<arch> images join the tag when
+    their version is the FreeBSD images'."""
+
+    def _cfg(self):
+        return Config(
+            image="testapp", registry="ghcr.io/daemonless",
+            architectures=["amd64", "aarch64"],
+        )
+
+    def _run(self, available, versions, fn):
+        with patch("dbuild.manifest._image_available", side_effect=lambda r: r in available), \
+             patch("dbuild.manifest._remote_image_version", side_effect=lambda r: versions.get(r)), \
+             patch("dbuild.manifest._assemble_and_push", return_value=True) as mock_assemble:
+            ok = fn()
+        return ok, mock_assemble
+
+    def test_same_version_joins_the_tag(self):
+        g = "ghcr.io/daemonless/testapp"
+        refs = [f"{g}:latest-amd64", f"{g}:latest-aarch64", f"{g}:latest-linux-amd64", f"{g}:latest-linux-arm64"]
+        ok, mock_assemble = self._run(set(refs), dict.fromkeys(refs, "0.2.1"),
+                                      lambda: manifest._create_manifest_for_tag(self._cfg(), "latest"))
+        self.assertTrue(ok)
+        self.assertEqual(mock_assemble.call_args.args[3], refs)
+
+    def test_other_version_is_left_out(self):
+        g = "ghcr.io/daemonless/testapp"
+        bsd = [f"{g}:latest-amd64", f"{g}:latest-aarch64"]
+        linux = f"{g}:latest-linux-amd64"
+        versions = {**dict.fromkeys(bsd, "0.2.1"), linux: "0.2.0"}
+        ok, mock_assemble = self._run(set(bsd) | {linux}, versions,
+                                      lambda: manifest._create_manifest_for_tag(self._cfg(), "latest"))
+        self.assertTrue(ok)
+        self.assertEqual(mock_assemble.call_args.args[3], bsd)
+
+    def test_versioned_tag_carries_linux(self):
+        g = "ghcr.io/daemonless/testapp"
+        refs = [f"{g}:latest-amd64", f"{g}:latest-aarch64", f"{g}:latest-linux-arm64"]
+        ok, mock_assemble = self._run(set(refs), dict.fromkeys(refs, "0.2.1"),
+                                      lambda: manifest._create_versioned_manifest(self._cfg(), Variant(tag="latest"), mirror_url=None))
+        self.assertTrue(ok)
+        self.assertEqual(mock_assemble.call_args.args[3], refs)
+
+    def test_no_linux_images_changes_nothing(self):
+        g = "ghcr.io/daemonless/testapp"
+        bsd = [f"{g}:latest-amd64", f"{g}:latest-aarch64"]
+        ok, mock_assemble = self._run(set(bsd), dict.fromkeys(bsd, "0.2.1"),
+                                      lambda: manifest._create_manifest_for_tag(self._cfg(), "latest"))
+        self.assertEqual(mock_assemble.call_args.args[3], bsd)

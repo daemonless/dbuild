@@ -47,6 +47,11 @@ on:
         required: false
         type: string
         default: ''
+      linux:
+        description: 'Also build the image for Linux from Containerfile.linux (amd64 and arm64, on GitHub runners), test it, and add it to the default variant''s tags. Only this workflow builds Linux images.'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -388,10 +393,54 @@ jobs:
           version: ${{ steps.ver.outputs.label }}
           pushed: ${{ github.event_name != 'pull_request' }}
 
+  # Linux half (inputs.linux): Containerfile.linux built natively on an amd64
+  # and an arm64 runner, checked like cit says, pushed as <tag>-linux-<arch>.
+  # dbuild manifest (any builder's) adds it to <tag> when its version is the
+  # FreeBSD images'. Never through dbuild's command line: Linux images are
+  # built here only.
+  build-linux:
+    needs: detect
+    if: ${{ inputs.linux && needs.detect.outputs.compose_only != 'true' }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Fetch dbuild
+        run: |
+          curl -fsSL "https://github.com/daemonless/dbuild/archive/${{ inputs.dbuild_ref || env.DBUILD_REF }}.tar.gz" | tar xz -C /tmp
+          mv /tmp/dbuild-* /tmp/dbuild
+          pip install -q PyYAML
+
+      - name: Build and test (linux/${{ matrix.arch }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          export PYTHONPATH=/tmp/dbuild
+          python3 /tmp/dbuild/.github/scripts/linux-image.py ${{ matrix.arch }} \
+            ${{ github.event_name != 'pull_request' && '--push' || '' }}
+
   # Create multi-arch manifests
   create-manifests:
-    needs: [detect, build]
-    if: success() && github.event_name != 'pull_request' && contains(needs.detect.outputs.declared_architectures, 'aarch64')
+    needs: [detect, build, build-linux]
+    # build-linux skipped (no inputs.linux) must not hold this back; failed must.
+    if: >-
+      !cancelled() && needs.build.result == 'success' && needs.build-linux.result != 'failure'
+      && github.event_name != 'pull_request'
+      && (contains(needs.detect.outputs.declared_architectures, 'aarch64') || inputs.linux)
     runs-on: ubuntu-latest
     steps:
       - name: Install skopeo
