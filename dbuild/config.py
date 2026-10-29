@@ -27,7 +27,8 @@ except ImportError:
 
 
 # Suffixes to ignore when auto-detecting variants from Containerfile.*
-_IGNORE_SUFFIXES: set[str] = {".j2", ".bak", ".orig", ".swp", ".tmp"}
+# (.linux is the build-linux job's, never a FreeBSD variant).
+_IGNORE_SUFFIXES: set[str] = {".j2", ".bak", ".orig", ".swp", ".tmp", ".linux"}
 
 # Global config path override for tests and embedding. Runtime default comes from PREFIX.
 _GLOBAL_CONFIG_PATH: Path | None = None
