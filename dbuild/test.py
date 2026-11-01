@@ -30,7 +30,12 @@ from pathlib import Path
 
 from dbuild import log, podman
 from dbuild.config import AppTestConfig, Config, Variant, variant_filter_matches
-from dbuild.container_backend import AppJailBackend, ContainerBackend, PodmanBackend
+from dbuild.container_backend import (
+    AppJailBackend,
+    ContainerBackend,
+    KubernetesBackend,
+    PodmanBackend,
+)
 
 # ── Cleanup registry (survives SIGTERM) ───────────────────────────────
 
@@ -92,12 +97,15 @@ _FATAL_CRASH_PATTERNS = re.compile(
 )
 _CRASH_LOOP_PATTERN = re.compile(r"Service '.*' crashed")
 
+#: The one "variant" of a stack-only repo (no image of its own), k8s backend.
+_STACK_TAG = "stack"
+
 
 # ── Label reading ─────────────────────────────────────────────────────
 
-def _read_labels(image_ref: str) -> dict:
+def _read_labels(image_ref: str, backend: ContainerBackend | None = None) -> dict:
     """Read OCI labels from an image and extract CIT-relevant values."""
-    labels = podman.inspect_labels(image_ref)
+    labels = backend.labels(image_ref) if backend else podman.inspect_labels(image_ref)
     port_str = labels.get("io.daemonless.port")
     health_raw = labels.get("io.daemonless.healthcheck-url")
 
@@ -337,6 +345,7 @@ def _test_command(
     test: AppTestConfig,
     *,
     annotations: dict[str, str],
+    backend: ContainerBackend | None = None,
 ) -> bool:
     """Run a one-shot image to completion; check exit code (+ optional regex).
 
@@ -345,7 +354,9 @@ def _test_command(
     """
     desc = " ".join(test.command) if test.command else "(image default CMD)"
     log.info(f"Command mode: running entrypoint with {desc}")
-    rc, output = podman.run_oneshot(image_ref, test.command, annotations=annotations)
+    if backend is None:
+        backend = PodmanBackend()
+    rc, output = backend.run_oneshot(image_ref, test.command, annotations=annotations)
     for line in output.splitlines()[-20:]:
         log.info(f"  {line}")
     log.info(f"Exit code: {rc} (expected {test.expect_exit})")
@@ -741,7 +752,30 @@ def _test_variant(
 
     log.step(f"Testing :{variant.tag}")
 
-    build_ref = _resolve_image_ref(cfg, variant.tag)
+    # -- Select backend --
+    if force_backend == "appjail":
+        if not AppJailBackend.available():
+            log.error("--backend appjail requested but appjail is not installed")
+            return 1
+        backend: ContainerBackend = AppJailBackend()
+    elif force_backend == "k8s":
+        if not KubernetesBackend.available():
+            log.error("--backend k8s requested but kubectl (with a kubeconfig) is not here")
+            return 1
+        backend = KubernetesBackend()
+    elif force_backend == "podman":
+        backend = PodmanBackend()
+    else:  # auto
+        backend = AppJailBackend() if (_appjail_cit_applicable(cfg) and AppJailBackend.available()) else PodmanBackend()
+
+    stack_only = variant.tag == _STACK_TAG
+    if force_backend == "k8s":
+        # Nothing is built on a cluster node: the test is of the registry's
+        # image, which the node pulls. A stack-only repo has no image of its
+        # own: its compose file names every image.
+        build_ref = "(stack)" if stack_only else f"{cfg.full_image}:{variant.tag}"
+    else:
+        build_ref = _resolve_image_ref(cfg, variant.tag)
     if build_ref is None:
         log.error(
             f"No image found: tried build-{variant.tag} and {variant.tag} "
@@ -751,9 +785,19 @@ def _test_variant(
     log.info(f"Image: {build_ref}")
 
     # -- Merge config: labels + config overrides --
-    # AppJail backend bypasses compose — it uses Director instead
-    compose_mode = test.compose and force_backend != "appjail"
+    # AppJail bypasses compose (Director runs the stack); on k8s the image is
+    # tested alone too, so a stack's main service runs without its sidecars.
+    compose_mode = test.compose and force_backend not in ("appjail", "k8s")
+    # On k8s the stack is one pod with a container per service; the checks
+    # then run against that pod like against a single container.
+    k8s_stack = bool(test.compose) and force_backend == "k8s"
     compose_file: Path | None = None
+    if k8s_stack:
+        compose_file = _find_compose_file(repo_dir)
+        if not compose_file:
+            log.error("compose: true but no compose.yaml found")
+            return 1
+        log.info(f"Stack: {compose_file}")
 
     if compose_mode:
         if not shutil.which("podman-compose"):
@@ -768,8 +812,12 @@ def _test_variant(
         build_tag = f"{cfg.full_image}:build"
         podman.tag(build_ref, build_tag)
         label_info: dict = {"port": None, "health": None, "jail_annotations": {}}
+    elif k8s_stack:
+        # The stack's images carry the labels, not one image: the config says
+        # the port and health path, as in compose mode.
+        label_info = {"port": None, "health": None, "jail_annotations": {}}
     else:
-        label_info = _read_labels(build_ref)
+        label_info = _read_labels(build_ref, backend)
 
     # Merge: config overrides > labels > defaults
     port = test.port or label_info["port"]
@@ -810,7 +858,7 @@ def _test_variant(
             log.error("command mode is podman-only (it runs the image to completion)")
             return 1
         cmd_results = {"command": "skip"}
-        passed = _test_command(build_ref, test, annotations=annotations)
+        passed = _test_command(build_ref, test, annotations=annotations, backend=backend)
         cmd_results["command"] = "pass" if passed else "fail"
         if out is not None:
             out.update(cmd_results)
@@ -848,17 +896,6 @@ def _test_variant(
     }
     rc = 1  # assume failure; set to 0 on success
 
-    # -- Select backend --
-    if force_backend == "appjail":
-        if not AppJailBackend.available():
-            log.error("--backend appjail requested but appjail is not installed")
-            return 1
-        backend: ContainerBackend = AppJailBackend()
-    elif force_backend == "podman":
-        backend = PodmanBackend()
-    else:  # auto
-        backend = AppJailBackend() if (_appjail_cit_applicable(cfg) and AppJailBackend.available()) else PodmanBackend()
-
     # PUID check only works on the podman backend, non-compose (needs env/volume).
     puid_run = puid_enabled and not compose_mode and isinstance(backend, PodmanBackend)
     if puid_enabled and not puid_run:
@@ -892,6 +929,16 @@ def _test_variant(
         if compose_mode:
             assert compose_file is not None
             podman.compose_up(str(compose_file))
+        elif k8s_stack:
+            assert compose_file is not None and isinstance(backend, KubernetesBackend)
+            backend.start_stack(
+                cname, str(repo_dir), str(compose_file),
+                image_map={} if stack_only else {f"{cfg.full_image}:build": build_ref},
+            )
+            # A stack with a pod per service: the config's port is the
+            # published one; probe the pod behind it at its container port.
+            backend.choose_main(cname, port)
+            port = backend.stack_port(cname, port)
         else:
             backend.start(
                 cname, build_ref, annotations=annotations,
@@ -1314,6 +1361,11 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         v for v in cfg.variants
         if variant_filter_matches(v.tag, variant_filter)
     ]
+    # A stack-only repo (type: stack) builds nothing, so it has no variants
+    # to test: on k8s its compose file is the thing under test, as one pod.
+    if not cfg.variants and cfg.test.compose and backends == ["k8s"]:
+        log.info("Stack-only repo: testing its compose file as one pod")
+        matching = [Variant(tag=_STACK_TAG)]
 
     for force_backend in backends:
         if len(backends) > 1:

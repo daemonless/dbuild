@@ -689,6 +689,136 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestKubernetesBackendSelection(unittest.TestCase):
+    """`--backend k8s` runs k8s alone, never as part of `all`, and refuses to
+    run where kubectl has no cluster to talk to."""
+
+    def _run(self, backend_arg, available):
+        from dbuild.config import _parse_appjail
+        cfg = MagicMock()
+        cfg.metadata.appjail = _parse_appjail({})
+        cfg.test.puid = False
+        cfg.variants = [MagicMock(tag="latest", puid=None)]
+        args = MagicMock(variant=None, json_output=None, backend=backend_arg, puid=None)
+        seen = []
+
+        def fake_test_variant(cfg, variant, test, **kw):
+            seen.append(kw["force_backend"])
+            return 0
+
+        with patch("dbuild.ci.detect") as detect, \
+                patch.object(cit.AppJailBackend, "available", return_value=True), \
+                patch.object(cit.KubernetesBackend, "available", return_value=available), \
+                patch.object(cit, "_test_variant", side_effect=fake_test_variant):
+            detect.return_value.should_skip.return_value = False
+            cit.run(cfg, args)
+        return seen
+
+    def test_all_leaves_k8s_out(self):
+        self.assertEqual(self._run("all", True), ["podman", "appjail"])
+
+    def test_k8s_alone_when_asked(self):
+        self.assertEqual(self._run("k8s", True), ["k8s"])
+
+    def test_variant_refuses_without_a_cluster(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/redis"
+        variant = MagicMock(tag="latest")
+        test = MagicMock(compose=False)
+        with patch.object(cit.KubernetesBackend, "available", return_value=False):
+            self.assertEqual(cit._test_variant(cfg, variant, test, force_backend="k8s"), 1)
+
+    def test_stack_only_repo_runs_as_one_pod_on_k8s(self):
+        from dbuild.config import _parse_appjail
+        cfg = MagicMock()
+        cfg.metadata.appjail = _parse_appjail({})
+        cfg.test.puid = False
+        cfg.test.compose = True
+        cfg.variants = []
+        args = MagicMock(variant=None, json_output=None, backend="k8s", puid=None)
+        seen = []
+
+        def fake_test_variant(cfg, variant, test, **kw):
+            seen.append((kw["force_backend"], variant.tag))
+            return 0
+
+        with patch("dbuild.ci.detect") as detect, \
+                patch.object(cit.KubernetesBackend, "available", return_value=True), \
+                patch.object(cit, "_test_variant", side_effect=fake_test_variant):
+            detect.return_value.should_skip.return_value = False
+            self.assertEqual(cit.run(cfg, args), 0)
+        self.assertEqual(seen, [("k8s", "stack")])
+
+    def test_stack_only_variant_reads_no_labels_and_maps_no_image(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/immich"
+        cfg.image = "immich"
+        variant = MagicMock(tag="stack")
+        test = MagicMock(compose=True, mode="health", port=2283, health="/api/server/ping", https=False,
+                         annotations=[], ready=None, wait=10, puid_ignore=[])
+        with patch.object(cit.KubernetesBackend, "available", return_value=True), \
+                patch.object(cit, "_read_labels") as labels, \
+                patch.object(cit, "_find_baseline", return_value=None), \
+                patch.object(cit, "_find_compose_file", return_value=Path("compose.yaml")), \
+                patch.object(cit, "_resolve_mode", return_value="health"), \
+                patch.object(cit.KubernetesBackend, "start_stack") as start_stack, \
+                patch.object(cit.KubernetesBackend, "stop"), \
+                patch.object(cit, "_functional_checks", return_value=0):
+            self.assertEqual(cit._test_variant(cfg, variant, test, force_backend="k8s"), 0)
+        labels.assert_not_called()
+        self.assertEqual(start_stack.call_args.kwargs["image_map"], {})
+
+    def test_k8s_tests_the_registry_image_and_starts_the_stack_as_a_pod(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/paperless-ngx"
+        cfg.image = "paperless-ngx"
+        variant = MagicMock(tag="latest")
+        test = MagicMock(compose=True, mode="shell", port=None, health=None, https=False,
+                         annotations=[], ready=None, wait=10, puid_ignore=[])
+        with patch.object(cit.KubernetesBackend, "available", return_value=True), \
+                patch.object(cit, "_read_labels") as labels, \
+                patch.object(cit, "_find_baseline", return_value=None), \
+                patch.object(cit, "_find_compose_file", return_value=Path("compose.yaml")), \
+                patch.object(cit, "_resolve_mode", return_value="shell"), \
+                patch.object(cit.KubernetesBackend, "start") as start, \
+                patch.object(cit.KubernetesBackend, "start_stack") as start_stack, \
+                patch.object(cit.KubernetesBackend, "stop"), \
+                patch.object(cit, "_functional_checks", return_value=0):
+            self.assertEqual(cit._test_variant(cfg, variant, test, force_backend="k8s"), 0)
+        labels.assert_not_called()  # a stack's port and health come from its config
+        start.assert_not_called()
+        start_stack.assert_called_once()
+        self.assertEqual(start_stack.call_args.args[2], "compose.yaml")
+        self.assertEqual(
+            start_stack.call_args.kwargs["image_map"],
+            {"ghcr.io/daemonless/paperless-ngx:build": "ghcr.io/daemonless/paperless-ngx:latest"},
+        )
+
+    def test_k8s_single_image_reads_its_labels_from_the_registry_image(self):
+        cfg = MagicMock()
+        cfg.full_image = "ghcr.io/daemonless/redis"
+        cfg.image = "redis"
+        variant = MagicMock(tag="latest")
+        test = MagicMock(compose=False, mode="port", port=6379, health=None, https=False,
+                         annotations=[], ready=None, wait=10, puid_ignore=[])
+        seen = {}
+
+        def fake_labels(ref, backend=None):
+            seen["ref"], seen["backend"] = ref, backend
+            return {"port": None, "health": None, "jail_annotations": {}}
+
+        with patch.object(cit.KubernetesBackend, "available", return_value=True), \
+                patch.object(cit, "_read_labels", side_effect=fake_labels), \
+                patch.object(cit, "_find_baseline", return_value=None), \
+                patch.object(cit, "_resolve_mode", return_value="port"), \
+                patch.object(cit.KubernetesBackend, "start"), \
+                patch.object(cit.KubernetesBackend, "stop"), \
+                patch.object(cit, "_functional_checks", return_value=0):
+            self.assertEqual(cit._test_variant(cfg, variant, test, force_backend="k8s"), 0)
+        self.assertEqual(seen["ref"], "ghcr.io/daemonless/redis:latest")
+        self.assertIsInstance(seen["backend"], cit.KubernetesBackend)
+
+
 class TestAppJailBackendSelection(unittest.TestCase):
     """`dbuild test` runs the appjail backend for every image that has AppJail
     on, including the default (no appjail key) and `appjail: true`, which

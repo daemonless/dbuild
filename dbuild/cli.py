@@ -152,9 +152,11 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     test_parser.add_argument(
         "--backend",
-        choices=["podman", "appjail", "all"],
+        choices=["podman", "appjail", "k8s", "all"],
         default="all",
-        help="which backend(s) to test with: podman, appjail, or all (default: all)",
+        help="which backend(s) to test with: podman, appjail, k8s, or all "
+             "(default: all = podman and, where configured, appjail; k8s only "
+             "when asked, on a cluster node, against the registry's image)",
     )
     test_parser.add_argument(
         "--puid",
