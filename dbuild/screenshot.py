@@ -7,8 +7,13 @@ works without them.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
+import signal
+import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import urlsplit
 
@@ -87,6 +92,12 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0, secure_
         options.add_argument(f"--unsafely-treat-insecure-origin-as-secure={origin}")
     if CHROME_BIN:
         options.binary_location = CHROME_BIN
+    # A profile dir of our own, so the browser's processes can be found and
+    # killed after quit(): chromedriver's own quit leaves chromium's helper
+    # processes (gpu, network, renderers) behind on FreeBSD, and they pile
+    # up -- a reaper such as timeout(1) then waits on them for good.
+    profile = tempfile.mkdtemp(prefix="dbuild-chrome-")
+    options.add_argument(f"--user-data-dir={profile}")
 
     service = Service(executable_path=CHROMEDRIVER_BIN)
     driver = webdriver.Chrome(service=service, options=options)
@@ -140,3 +151,16 @@ def capture(url: str, output: str, timeout: int = 30, min_wait: int = 0, secure_
         return False
     finally:
         driver.quit()
+        _kill_leftovers(profile)
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def _kill_leftovers(profile: str) -> None:
+    """Kill chromium processes still running on *profile* after quit()."""
+    try:
+        out = subprocess.run(["pgrep", "-f", profile], capture_output=True, text=True).stdout
+    except OSError:
+        return
+    for pid in out.split():
+        with contextlib.suppress(OSError, ValueError):
+            os.kill(int(pid), signal.SIGKILL)
