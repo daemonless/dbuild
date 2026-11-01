@@ -666,7 +666,9 @@ def _parse_service_data(
                 pub = str(p.get("published", ""))
                 tgt = str(p.get("target", ""))
                 proto = p.get("protocol", "tcp")
-            ports.append({"published": pub, "target": tgt, "protocol": proto})
+            # Compose accepts `TCP`/`53:53/UDP`; every consumer compares or emits
+            # lowercase (README suffix, appjail `proto:`), so normalise once here.
+            ports.append({"published": pub, "target": tgt, "protocol": str(proto or "tcp").lower()})
 
     # 2. Fallback to legacy config.yaml (if compose missing or lists empty)
     if not env:
@@ -682,7 +684,7 @@ def _parse_service_data(
             ports.append({
                 "published": str(p.get("port", "")),
                 "target": str(p.get("port", "")),
-                "protocol": p.get("protocol", "tcp")
+                "protocol": str(p.get("protocol") or "tcp").lower()
             })
 
     return env, volumes, ports
