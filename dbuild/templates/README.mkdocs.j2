@@ -332,7 +332,14 @@ Save as `run.sh`, then run `sh run.sh`.
 !!! info "Implementation Details"
 
     - **Architectures:** {{ architectures | default(['amd64']) | join(', ') }}
+{#- Mirrors the same conditional in README.j2. This block OVERRIDES that one, so a fix
+    applied only there silently never reaches the docs site — which is the page most
+    readers actually see. Keep the two in step. -#}
+{%- if user == "root" %}
+    - **User:** `root` — the service process stays root by design, not dropped to `bsd`.
+{%- else %}
     - **User:** `{{ user }}` (UID/GID set via [PUID/PGID](../guides/permissions.md)). Defaults to `1000:1000`.
+{%- endif %}
     - **Base:** Built on `@REGISTRY@/base` (FreeBSD {{ base_version }}).
 {%- if mlock %}
     - **mlock:** Requires `--annotation 'org.freebsd.jail.allow.mlock=true'` ([ocijail 0.5.0+](/guides/ocijail-patch/))

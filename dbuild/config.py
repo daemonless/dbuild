@@ -655,6 +655,13 @@ def _parse_service_data(
                 proto = "tcp"
                 if "/" in tgt:
                     tgt, proto = tgt.split("/", 1)
+                # The single-field short form is one string for BOTH ports, so
+                # `53/udp` leaves the protocol stuck on the published port too and
+                # the snippet renders `53/udp:53/udp`. Strip it here rather than in
+                # the template: `published` is documented as a port number, and
+                # every consumer of cfg.ports would otherwise need the same guard.
+                if "/" in pub:
+                    pub = pub.split("/", 1)[0]
             else:
                 pub = str(p.get("published", ""))
                 tgt = str(p.get("target", ""))
