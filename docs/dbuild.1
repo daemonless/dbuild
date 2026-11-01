@@ -363,7 +363,7 @@ filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 write test result JSON to FILE
 .TP
 \fB--backend\fR
-which backend(s) to test with: podman, appjail, or all (default: all)
+which backend(s) to test with: podman, appjail, k8s, or all (default: all = podman and, where configured, appjail). k8s runs only when asked, on a cluster node, one pod per test against the registry's image
 .TP
 \fB--puid\fR
 enable/disable the PUID/PGID re-chown check for this run, overriding the `cit: puid:` config (e.g. --puid=false). Bare --puid forces it on; default follows config (on). Podman only.
