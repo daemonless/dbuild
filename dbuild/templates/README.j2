@@ -31,6 +31,31 @@
 {{ v.path }}{{ ":" ~ v.options if v.options else "" }}
 {%- endmacro -%}
 
+{#- A port's `/proto` suffix, emitted only when it is load-bearing.
+
+    tcp is the default for both compose and `podman run -p`, so a bare
+    `4000:4000` already means tcp and adding the suffix everywhere would churn
+    every README in the catalogue to no benefit.
+
+    It IS load-bearing when a service publishes the same port on both
+    protocols. Without the suffix the two entries render identically — blocky
+    declares `53:53/udp` and `53:53/tcp` and the snippet emitted `53:53` twice,
+    which podman rejects as a duplicate mapping. Where a runtime tolerates it,
+    the copy-pasted result is TCP-only DNS: a resolver that answers `dig +tcp`
+    and nothing a normal client sends.
+
+    The parameters table (`p.protocol|upper`) was always right; only the
+    copy-pasteable snippets dropped it.
+
+    Compared case-insensitively and emitted lowercased: compose accepts
+    `protocol: TCP` and `53:53/UDP`, and config.py stores whatever the author wrote
+    verbatim. A raw comparison would let `TCP` through as a non-default and append
+    `/TCP` to every port of an image that should have been left alone. -#}
+{%- macro proto_suffix(p) -%}
+{%- set proto = (p.protocol | default("", true) | lower) -%}
+{{ "/" ~ proto if proto and proto != "tcp" else "" }}
+{%- endmacro -%}
+
 {%- macro compose_snippet(override_port=None) -%}
 services:
   {{ name }}:
@@ -56,9 +81,9 @@ services:
     ports:
 {%- for p in ports %}
 {%- if loop.first %}
-      - "{{ override_port if override_port else port_var }}:{{ p.target }}"
+      - "{{ override_port if override_port else port_var }}:{{ p.target }}{{ proto_suffix(p) }}"
 {%- else %}
-      - "{{ p.port }}:{{ p.target }}"
+      - "{{ p.port }}:{{ p.target }}{{ proto_suffix(p) }}"
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -202,9 +227,9 @@ podman run -d --name {{ name }} \
 {%- endif %}
 {%- for p in ports %}
 {%- if loop.first %}
-  -p {{ override_port if override_port else port_var }}:{{ p.target }} \
+  -p {{ override_port if override_port else port_var }}:{{ p.target }}{{ proto_suffix(p) }} \
 {%- else %}
-  -p {{ p.port }}:{{ p.target }} \
+  -p {{ p.port }}:{{ p.target }}{{ proto_suffix(p) }} \
 {%- endif %}
 {%- endfor %}
 {%- for a in annotations %}
@@ -645,7 +670,26 @@ Open `http://<server>:{{ ports[0].port if render_mode != "mkdocs" else port_var 
 {%- block implementation_details %}
 
 **Architectures:** {{ architectures | default(['amd64']) | join(', ') }}
+{#- PUID/PGID only mean something for an image whose init drops privilege. A
+    root image (`user: "root"` in x-daemonless) stays root on purpose — blocky
+    binds :53, and FreeBSD reserves ports below 1024 to root with no capability
+    mechanism to delegate one. Printing "root (UID/GID via PUID/PGID, defaults
+    to 1000:1000)" told the reader both that it runs as root and that it runs as
+    1000:1000.
+
+    The wording says what is certain — the PROCESS stays root — and deliberately
+    does NOT claim PUID/PGID are unused. A root image can still honour them for
+    the base init's chown of /config, and some READMEs print a PUID row in the
+    env table on the same page, so "not used" would contradict the document a few
+    lines up.
+
+    🔴 README.mkdocs.j2 OVERRIDES this whole block. A fix applied only here never
+    reaches the docs site. Both are updated; keep them in step. -#}
+{%- if user == "root" %}
+**User:** `root` — the service process stays root by design, not dropped to `bsd`
+{%- else %}
 **User:** `{{ user }}` (UID/GID via PUID/PGID, defaults to 1000:1000)
+{%- endif %}
 **Base:** FreeBSD {{ base_version }}
 {%- endblock %}
 {%- block community %}

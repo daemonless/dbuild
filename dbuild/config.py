@@ -655,11 +655,20 @@ def _parse_service_data(
                 proto = "tcp"
                 if "/" in tgt:
                     tgt, proto = tgt.split("/", 1)
+                # The single-field short form is one string for BOTH ports, so
+                # `53/udp` leaves the protocol stuck on the published port too and
+                # the snippet renders `53/udp:53/udp`. Strip it here rather than in
+                # the template: `published` is documented as a port number, and
+                # every consumer of cfg.ports would otherwise need the same guard.
+                if "/" in pub:
+                    pub = pub.split("/", 1)[0]
             else:
                 pub = str(p.get("published", ""))
                 tgt = str(p.get("target", ""))
                 proto = p.get("protocol", "tcp")
-            ports.append({"published": pub, "target": tgt, "protocol": proto})
+            # Compose accepts `TCP`/`53:53/UDP`; every consumer compares or emits
+            # lowercase (README suffix, appjail `proto:`), so normalise once here.
+            ports.append({"published": pub, "target": tgt, "protocol": str(proto or "tcp").lower()})
 
     # 2. Fallback to legacy config.yaml (if compose missing or lists empty)
     if not env:
@@ -675,7 +684,7 @@ def _parse_service_data(
             ports.append({
                 "published": str(p.get("port", "")),
                 "target": str(p.get("port", "")),
-                "protocol": p.get("protocol", "tcp")
+                "protocol": str(p.get("protocol") or "tcp").lower()
             })
 
     return env, volumes, ports
