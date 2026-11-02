@@ -711,7 +711,12 @@ jobs:
   # builds; it has a digest of its own, so it is signed once it exists.
   sign-manifests:
     needs: [attest-sbom, create-manifests]
-    if: success() && github.event_name != 'pull_request'
+    # success() is false when any job upstream was skipped, and build-linux
+    # (behind create-manifests) is skipped for every FreeBSD-only build:
+    # the two jobs this needs are asked by name.
+    if: >-
+      !cancelled() && needs.attest-sbom.result == 'success' && needs.create-manifests.result == 'success'
+      && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       packages: write
