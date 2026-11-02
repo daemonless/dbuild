@@ -641,10 +641,15 @@ jobs:
           git pull --rebase origin main
           git push
 
-  # Sign the SBOMs onto the pushed images as cosign attestations.
-  # Runs on Linux (keyless needs the GitHub OIDC token) against the already-pushed
-  # ghcr images -- keyless (GitHub OIDC), so no keys to manage. Consumers:
-  #   cosign verify-attestation --type cyclonedx ghcr.io/daemonless/<img>:<tag>
+  # Sign the pushed images, and sign the SBOMs onto them as cosign
+  # attestations. Runs on Linux (keyless needs the GitHub OIDC token) against
+  # the already-pushed ghcr images -- keyless (GitHub OIDC), so no keys to
+  # manage. A signature is on the image's digest, so every tag of that
+  # digest (the versioned ones push.py adds too) verifies. Consumers:
+  #   cosign verify ghcr.io/daemonless/<img>:<tag> \
+  #     --certificate-identity-regexp 'github.com/daemonless/' \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  #   cosign verify-attestation --type cyclonedx ghcr.io/daemonless/<img>:<tag> ...
   attest-sbom:
     needs: build
     if: success() && github.event_name != 'pull_request'
@@ -668,12 +673,13 @@ jobs:
           pattern: sbom-*
           path: sbom-artifacts/
 
-      - name: Attest SBOMs onto pushed images
+      - name: Sign pushed images and attest SBOMs onto them
         env:
           IMAGE_NAME: ${{ inputs.image_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
+          signed=""
           # actions/download-artifact only nests matched artifacts under a
           # per-artifact subdirectory when 2+ artifacts match the pattern --
           # with exactly one match (single-variant images) it flattens the
@@ -691,8 +697,55 @@ jobs:
               tag="${rest%-spdx.json}"; predicate_type="spdxjson"
             fi
             ref="ghcr.io/daemonless/${IMAGE_NAME}:${tag}"
+            # Once per tag: both SBOM formats name the same image.
+            if [[ " $signed " != *" $tag "* ]]; then
+              echo "=== Signing ${ref} ==="
+              cosign sign --yes "$ref"
+              signed="$signed $tag"
+            fi
             echo "=== Attesting ${predicate_type} SBOM onto ${ref} (${f}) ==="
             cosign attest --yes --type "$predicate_type" --predicate "$f" "$ref"
+          done
+
+  # A multi-arch image's bare tag is a manifest list assembled after the
+  # builds; it has a digest of its own, so it is signed once it exists.
+  sign-manifests:
+    needs: [attest-sbom, create-manifests]
+    if: success() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Login to GHCR
+        run: cosign login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: sbom-*
+          path: sbom-artifacts/
+
+      - name: Sign the manifest lists
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          set -euo pipefail
+          # The bare tag is the arch-suffixed one the SBOM is named for,
+          # less its suffix (see dbuild/config.py arch_tag_suffix).
+          signed=""
+          for f in $(find sbom-artifacts -name "${IMAGE_NAME}-*-cyclonedx.json"); do
+            tag="$(basename "$f")"; tag="${tag#"${IMAGE_NAME}"-}"; tag="${tag%-cyclonedx.json}"
+            bare="${tag%-amd64}"; bare="${bare%-aarch64}"
+            [[ "$bare" != "$tag" && " $signed " != *" $bare "* ]] || continue
+            ref="ghcr.io/daemonless/${IMAGE_NAME}:${bare}"
+            echo "=== Signing manifest list ${ref} ==="
+            cosign sign --yes "$ref"
+            signed="$signed $bare"
           done
 
   # Trigger status page update after successful builds
