@@ -217,7 +217,8 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                 if not meta.get("logo") and not is_deprecated:
                     warnings.append(
                         "No logo file found (.daemonless/logo.svg or logo.png)."
-                        " Add one with 'dbuild logo <url>'."
+                        " Find one at https://dashboardicons.com/ and add it"
+                        " with 'dbuild logo <url>'."
                     )
             else:
                 for msg in upstream_assets.logo_warnings(
