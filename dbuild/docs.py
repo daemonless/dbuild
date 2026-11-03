@@ -991,6 +991,7 @@ def generate_appjail_files(
     # user values by writing .env alone and never edits director.yml. The docs
     # ("mkdocs") and hand-edit (default) renders are unaffected.
     context["render_mode"] = "deploy"
+    context["cfg_root"] = "/containers"
     if image_ref:
         context["image_ref"] = image_ref
     # Host networking is declared through the director options (ip4_inherit);
