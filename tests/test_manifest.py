@@ -210,4 +210,5 @@ class TestLinuxHalves(unittest.TestCase):
         bsd = [f"{g}:latest-amd64", f"{g}:latest-aarch64"]
         ok, mock_assemble = self._run(set(bsd), dict.fromkeys(bsd, "0.2.1"),
                                       lambda: manifest._create_manifest_for_tag(self._cfg(), "latest"))
+        self.assertTrue(ok)
         self.assertEqual(mock_assemble.call_args.args[3], bsd)

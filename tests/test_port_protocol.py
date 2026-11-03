@@ -9,7 +9,6 @@ from pathlib import Path
 
 from dbuild import config as dbuild_config
 from dbuild import docs
-
 from tests.test_docs import CONTAINERFILE_J2, _chdir
 
 COMPOSE = """\
