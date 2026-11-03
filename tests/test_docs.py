@@ -1142,3 +1142,27 @@ class TestAccessLine(unittest.TestCase):
         readme = outputs["README.md"]
         self.assertIn("Open `http://<server>:8080` from another machine", readme)
         self.assertNotIn("http://localhost:", readme)
+
+
+class TestAppjailBundleCfgRootAndZipFilename(unittest.TestCase):
+    def test_deploy_bundle_env_and_mkdocs_zip_filename(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "radarr"
+            (repo / ".daemonless").mkdir(parents=True)
+            compose = (
+                COMPOSE_YAML.format(name="radarr").replace("  docs: manual\n", "  appjail: true\n")
+                + "    volumes:\n      - /path/to/containers/radarr:/config\n"
+            )
+            (repo / "compose.yaml").write_text(compose)
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                docs.generate_appjail_files(cfg, repo / "bundle")
+                env = docs._get_jinja_env(repo)
+                ctx = docs._enrich_metadata(cfg)
+                mkdocs = env.get_template("README.mkdocs.j2").render(dict(ctx, render_mode="mkdocs"))
+            env_text = (repo / "bundle" / ".env").read_text()
+        self.assertIn("RADARR_CONFIG_PATH=/containers/radarr", env_text)
+        self.assertNotIn("RADARR_CONFIG_PATH=/radarr", env_text)
+        self.assertIn('data-zip-filename="appjail-director.yml"', mkdocs)
+        self.assertNotIn('data-zip-filename="appjail-director.yaml"', mkdocs)
