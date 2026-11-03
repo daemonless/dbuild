@@ -824,11 +824,12 @@ class TestAppJailBackendSelection(unittest.TestCase):
     on, including the default (no appjail key) and `appjail: true`, which
     parse to {}."""
 
-    def _backends(self, meta):
+    def _backends(self, meta, mode="health"):
         from dbuild.config import _parse_appjail
         cfg = MagicMock()
         cfg.metadata.appjail = _parse_appjail(meta)
         cfg.test.puid = False
+        cfg.test.mode = mode
         cfg.variants = [MagicMock(tag="latest", puid=None)]
         args = MagicMock(variant=None, json_output=None, backend="all", puid=None)
         seen = []
@@ -864,10 +865,17 @@ class TestAppJailBackendSelection(unittest.TestCase):
         meta = {"appjail": {"depends_on": ["postgres"]}}
         self.assertEqual(self._backends(meta), ["podman"])
 
+    def test_command_mode_skips_appjail(self):
+        self.assertEqual(self._backends({}, mode="command"), ["podman"])
+
     def test_applicable_for_default(self):
         from dbuild.config import _parse_appjail
         cfg = MagicMock()
+        cfg.test.mode = "health"
         cfg.metadata.appjail = _parse_appjail({})
         self.assertTrue(cit._appjail_cit_applicable(cfg))
+        cfg.test.mode = "command"
+        self.assertFalse(cit._appjail_cit_applicable(cfg))
+        cfg.test.mode = "health"
         cfg.metadata.appjail = _parse_appjail({"appjail": False})
         self.assertFalse(cit._appjail_cit_applicable(cfg))

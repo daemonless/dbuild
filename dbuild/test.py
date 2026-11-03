@@ -1335,6 +1335,9 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         backends = ["podman"]
         if cfg.metadata.appjail is None:
             pass  # appjail: false
+        elif cfg.test and cfg.test.mode == "command":
+            log.info("appjail backend skipped: command mode is podman-only "
+                     "(it runs the image to completion)")
         elif not _appjail_cit_applicable(cfg):
             log.info("appjail backend skipped: this image declares sidecars (appjail.depends_on); "
                      "the single-jail CIT can't run its stack")
@@ -1436,5 +1439,7 @@ def _appjail_cit_applicable(cfg) -> bool:
     aj = cfg.metadata.appjail
     # {} is enabled (appjail: true, or no key); only None is appjail: false
     if aj is None:
+        return False
+    if getattr(cfg, "test", None) is not None and getattr(cfg.test, "mode", "") == "command":
         return False
     return not (isinstance(aj, dict) and aj.get("depends_on"))
