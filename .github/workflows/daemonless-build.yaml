@@ -115,7 +115,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install dependencies
-        run: pip install PyYAML
+        run: pip install PyYAML jinja2
 
       - name: dbuild lint
         run: |
