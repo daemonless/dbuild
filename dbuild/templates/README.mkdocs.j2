@@ -243,7 +243,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
     Then run `podman-compose up -d`.
 {% endif %}
-{% if appjail_enabled and choices %}
+{% if appjail_enabled and choices and (not is_stack or appjail_sidecar or director_override_text) %}
 === ":appjail-appjail: AppJail"
 {{ choice_form("appjail") | indent(4, first=True) }}
 {% elif appjail_enabled and appjail_sidecar %}

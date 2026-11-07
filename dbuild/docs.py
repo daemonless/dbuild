@@ -936,6 +936,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     context["director_override_env"] = _render_override_env(authored, context) if authored else ""
     context["sidecar_templates"] = _sidecar_templates(cfg)
     context["stack_parts"] = _stack_parts(cfg)
+    context["is_stack"] = cfg.type == "stack"
     return context
 
 

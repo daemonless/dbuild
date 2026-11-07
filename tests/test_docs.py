@@ -836,6 +836,20 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         self.assertIn("**db-template.conf**", aj)
         self.assertIn("sysvshm: new", aj)
 
+    def test_a_stack_without_a_director_gets_no_appjail_section(self):
+        compose = STACK_COMPOSE[:STACK_COMPOSE.index("  appjail:\n")] + "  appjail: true\n" + STACK_COMPOSE[STACK_COMPOSE.index("\nservices:\n") + 1:]
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(compose)
+            (t / "example.env").write_text(STACK_ENV)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), t)
+                site = docs._get_jinja_env(t).get_template("README.mkdocs.j2").render(dict(docs._enrich_metadata(cfg), render_mode="mkdocs"))
+        self.assertEqual(errors, [])
+        self.assertNotIn("### AppJail Director", outputs["README.md"], "no single-image director for a stack")
+        self.assertNotIn(":appjail-appjail: AppJail", site)
+
     def test_the_line_resolves_tags_and_skips_the_clock_mount(self):
         compose = STACK_COMPOSE.replace("    image: ghcr.io/daemonless/photos-server:latest\n    network_mode: host\n",
                                         "    image: ghcr.io/daemonless/photos-server:${TAG:-latest}\n    network_mode: host\n", 1)

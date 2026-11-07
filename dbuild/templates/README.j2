@@ -527,7 +527,8 @@ Then run `podman-compose up -d`.
 Save as `compose.yaml`, then run `podman-compose up -d`.
 {%- endif %}
 {%- endif %}
-{%- if appjail_enabled and choices %}
+{#- A stack's director comes from its author; without one there is none to render. #}
+{%- if appjail_enabled and choices and (not is_stack or appjail_sidecar or director_override_text) %}
 
 ### AppJail Director
 {%- if choices_capped.appjail %}
