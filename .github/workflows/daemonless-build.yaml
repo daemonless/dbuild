@@ -880,6 +880,55 @@ jobs:
           SHORT_SHA="${SHORT_SHA:0:7}"
           COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
 
-          curl -sS -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"🚀 New Container Fleet Addition: ${{ inputs.image_name }}\",\"url\":\"$COMMIT_URL\",\"color\":15844367,\"fields\":[{\"name\":\"Registry\",\"value\":\"[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})\",\"inline\":true},{\"name\":\"Commit\",\"value\":\"[$SHORT_SHA]($COMMIT_URL)\",\"inline\":true},{\"name\":\"Branch\",\"value\":\"${{ github.ref_name }}\",\"inline\":true}],\"footer\":{\"text\":\"Daemonless FreeBSD Native OCI Containers\"}}]}" \
-            "$ANNOUNCE_WEBHOOK"
+          DESCRIPTION=""
+          if [ -f compose.yaml ]; then
+            DESCRIPTION=$(yq '.["x-daemonless"].description // ""' compose.yaml) || DESCRIPTION=""
+          fi
+
+          # Discord can't render SVG thumbnails, so rasterize those to PNG.
+          LOGO=""
+          for ext in png jpg webp svg; do
+            [ -f ".daemonless/logo.$ext" ] || continue
+            if [ "$ext" = svg ]; then
+              { sudo apt-get install -y -qq librsvg2-bin >/dev/null \
+                && rsvg-convert -w 256 -h 256 --keep-aspect-ratio \
+                     -o "$RUNNER_TEMP/logo.png" .daemonless/logo.svg \
+                && LOGO="$RUNNER_TEMP/logo.png"; } || echo "::warning::logo.svg conversion failed; announcing without logo"
+            else
+              LOGO=".daemonless/logo.$ext"
+            fi
+            break
+          done
+          LOGO_NAME="logo.${LOGO##*.}"
+
+          jq -n \
+            --arg title "🚀 New Container Fleet Addition: ${{ inputs.image_name }}" \
+            --arg desc "$DESCRIPTION" \
+            --arg url "$COMMIT_URL" \
+            --arg registry "[ghcr.io](https://ghcr.io/daemonless/${{ inputs.image_name }})" \
+            --arg commit "[$SHORT_SHA]($COMMIT_URL)" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg thumb "${LOGO:+attachment://$LOGO_NAME}" \
+            '{username: "Daemonless New Containers", embeds: [{
+              title: $title, url: $url, color: 15844367,
+              fields: [
+                {name: "Registry", value: $registry, inline: true},
+                {name: "Commit", value: $commit, inline: true},
+                {name: "Branch", value: $branch, inline: true}
+              ],
+              footer: {text: "Daemonless FreeBSD Native OCI Containers"}
+            }
+            + (if $desc != "" then {description: $desc} else {} end)
+            + (if $thumb != "" then {thumbnail: {url: $thumb}} else {} end)
+            ]}' > "$RUNNER_TEMP/announce.json"
+
+          if [ -n "$LOGO" ]; then
+            curl -sS \
+              -F "payload_json=<$RUNNER_TEMP/announce.json;type=application/json" \
+              -F "files[0]=@$LOGO;filename=$LOGO_NAME" \
+              "$ANNOUNCE_WEBHOOK"
+          else
+            curl -sS -H "Content-Type: application/json" \
+              --data-binary "@$RUNNER_TEMP/announce.json" \
+              "$ANNOUNCE_WEBHOOK"
+          fi
