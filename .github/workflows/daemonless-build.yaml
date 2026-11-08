@@ -184,6 +184,35 @@ jobs:
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
+      # A manual run keeps a failed VM open over a public VNC link. Its password
+      # is made for this run and printed only encrypted to the SSH keys of the
+      # account that started it; no keys, no remote VNC.
+      - name: One-time VNC password
+        id: vnc
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -eu
+          if ! curl -fsSL "https://github.com/${ACTOR}.keys" | grep -E '^(ssh-ed25519|ssh-rsa) ' > /tmp/vnc-keys; then
+            echo "::warning::${ACTOR} has no ssh-ed25519 or ssh-rsa key on GitHub; remote VNC is off for this run."
+            exit 0
+          fi
+          pw=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-8)
+          echo "::add-mask::$pw"
+          command -v age >/dev/null || sudo apt-get install -y -qq age >/dev/null
+          enc=$(printf '%s' "$pw" | age -a -R /tmp/vnc-keys)
+          {
+            echo "### One-time VNC password"
+            echo "Encrypted to the SSH keys of ${ACTOR}. Save the block below to a file and run"
+            echo "\`age -d -i ~/.ssh/id_ed25519 <file>\`."
+            echo '```'
+            echo "$enc"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$enc"
+          echo "pw=$pw" >> "$GITHUB_OUTPUT"
+
       - name: Build in FreeBSD VM (${{ matrix.tag }}${{ matrix.arch_suffix }})
         uses: vmactions/freebsd-vm@v1.5.9
         env:
@@ -194,7 +223,7 @@ jobs:
           DBUILD_REGISTRY: ${{ inputs.registry }}
         with:
           release: "15.1"
-          vnc-password: ${{ secrets.VNC_PASSWORD }}
+          vnc-password: ${{ steps.vnc.outputs.pw }}
           arch: ${{ matrix.vm_arch }}
           sync: ${{ matrix.vm_sync }}
           # The action's 6144 MB OOMs large Rust builds; the public runner has 16 GB.
@@ -202,7 +231,7 @@ jobs:
           usesh: true
           copyback: true
           data-dir: /mnt/freebsd-vm
-          debug-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+          debug-on-error: ${{ steps.vnc.outputs.pw != '' }}
           envs: "GITHUB_TOKEN GITHUB_ACTOR DOCKERHUB_USERNAME DOCKERHUB_TOKEN DBUILD_REGISTRY"
           prepare: |
             set -e
@@ -490,15 +519,42 @@ jobs:
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
+      # Same one-time VNC password as the build job.
+      - name: One-time VNC password
+        id: vnc
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -eu
+          if ! curl -fsSL "https://github.com/${ACTOR}.keys" | grep -E '^(ssh-ed25519|ssh-rsa) ' > /tmp/vnc-keys; then
+            echo "::warning::${ACTOR} has no ssh-ed25519 or ssh-rsa key on GitHub; remote VNC is off for this run."
+            exit 0
+          fi
+          pw=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-8)
+          echo "::add-mask::$pw"
+          command -v age >/dev/null || sudo apt-get install -y -qq age >/dev/null
+          enc=$(printf '%s' "$pw" | age -a -R /tmp/vnc-keys)
+          {
+            echo "### One-time VNC password"
+            echo "Encrypted to the SSH keys of ${ACTOR}. Save the block below to a file and run"
+            echo "\`age -d -i ~/.ssh/id_ed25519 <file>\`."
+            echo '```'
+            echo "$enc"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$enc"
+          echo "pw=$pw" >> "$GITHUB_OUTPUT"
+
       - name: Test in FreeBSD VM
         uses: vmactions/freebsd-vm@v1.5.9
         with:
           release: "15.1"
-          vnc-password: ${{ secrets.VNC_PASSWORD }}
+          vnc-password: ${{ steps.vnc.outputs.pw }}
           usesh: true
           copyback: true
           data-dir: /mnt/freebsd-vm
-          debug-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+          debug-on-error: ${{ steps.vnc.outputs.pw != '' }}
           prepare: |
             set -e
             # Install build tools from pinned bundle
