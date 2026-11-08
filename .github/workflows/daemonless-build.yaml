@@ -184,12 +184,13 @@ jobs:
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
-      # A manual run keeps a failed VM open over a public VNC link. Its password
-      # is made for this run and printed only encrypted to the SSH keys of the
-      # account that started it; no keys, no remote VNC.
+      # Remote VNC only on a run with debug logging on (Re-run jobs -> Enable
+      # debug logging). The password is made for this run and printed only
+      # encrypted to the SSH keys of whoever started or re-ran it; no keys, no
+      # remote VNC. A run with remote VNC is never published.
       - name: One-time VNC password
         id: vnc
-        if: github.event_name == 'workflow_dispatch'
+        if: runner.debug == '1'
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -216,10 +217,12 @@ jobs:
       - name: Build in FreeBSD VM (${{ matrix.tag }}${{ matrix.arch_suffix }})
         uses: vmactions/freebsd-vm@v1.5.9
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A debug run publishes nothing, so its VM, which a console can reach,
+          # gets no credentials; builds fall back to unauthenticated API calls.
+          GITHUB_TOKEN: ${{ steps.vnc.outputs.pw == '' && secrets.GITHUB_TOKEN || '' }}
           GITHUB_ACTOR: ${{ github.actor }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_TOKEN: ${{ steps.vnc.outputs.pw == '' && secrets.DOCKERHUB_TOKEN || '' }}
           DBUILD_REGISTRY: ${{ inputs.registry }}
         with:
           release: "15.1"
@@ -337,6 +340,8 @@ jobs:
               echo "Tests failed with exit code $cit_exit - skipping push"
             elif [ "${{ github.event_name }}" = "pull_request" ]; then
               echo "PR build - skipping push"
+            elif [ "${{ steps.vnc.outputs.pw != '' }}" = "true" ]; then
+              echo "Remote VNC was enabled for this run - skipping push"
             else
               # Free disk before push
               swapoff /dev/md0 2>/dev/null; mdconfig -d -u 0 2>/dev/null; rm -f /swapfile
@@ -349,6 +354,15 @@ jobs:
               $DBUILD -v sbom --variant "$VARIANT" --arch "$ARCH" --format all --embed
               $DBUILD -v push --variant "$VARIANT" --arch "$ARCH"
             fi
+
+      # The VM step reads as passed once a debug session ends, and anyone at
+      # the console could have changed the build: fail the job so nothing
+      # downstream (manifests, signing, SBOM commit) publishes it.
+      - name: Refuse to publish a run with remote VNC
+        if: ${{ !cancelled() && steps.vnc.outputs.pw != '' }}
+        run: |
+          echo "::error::Remote VNC was enabled for this run, so nothing from it is published. Run it again without debug logging to publish."
+          exit 1
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v7
@@ -522,7 +536,7 @@ jobs:
       # Same one-time VNC password as the build job.
       - name: One-time VNC password
         id: vnc
-        if: github.event_name == 'workflow_dispatch'
+        if: runner.debug == '1'
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
