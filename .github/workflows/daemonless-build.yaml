@@ -197,6 +197,8 @@ jobs:
           vnc-password: ${{ secrets.VNC_PASSWORD }}
           arch: ${{ matrix.vm_arch }}
           sync: ${{ matrix.vm_sync }}
+          # The action's 6144 MB OOMs large Rust builds; the public runner has 16 GB.
+          mem: 12288
           usesh: true
           copyback: true
           data-dir: /mnt/freebsd-vm
