@@ -206,11 +206,25 @@ jobs:
           envs: "GITHUB_TOKEN GITHUB_ACTOR DOCKERHUB_USERNAME DOCKERHUB_TOKEN DBUILD_REGISTRY"
           prepare: |
             set -e
-            # Create 4GB swap for heavy builds
-            dd if=/dev/zero of=/swapfile bs=1m count=4096
+            # Swap for heavy builds: up to 16 GB, leaving 30 GB of disk for the
+            # build itself; never less than the 4 GB it always had.
+            avail_mb=$(df -m / | awk 'NR==2 {print $4}')
+            swap_mb=$((avail_mb - 30720))
+            [ "$swap_mb" -gt 16384 ] && swap_mb=16384
+            [ "$swap_mb" -lt 4096 ] && swap_mb=4096
+            dd if=/dev/zero of=/swapfile bs=1m count="$swap_mb"
             chmod 0600 /swapfile
             mdconfig -a -t vnode -f /swapfile -u 0
             swapon /dev/md0
+            # The OOM killer fires when the pagedaemon falls behind, even with
+            # swap free; give it longer before it kills a compiler.
+            sysctl vm.pageout_oom_seq=120
+
+            echo "=== VM resources ==="
+            sysctl hw.physmem hw.ncpu
+            swapinfo -m
+            df -h /
+            mount -p | awk '$2 == "/"'
 
             # build-tools assets are amd64-bare/-aarch64/-riscv64 -- fixed
             # naming, independent of dbuild's registry-tag arch_suffix.
@@ -251,8 +265,14 @@ jobs:
             OLD_VERSION=$(jq -r --arg tag "$VARIANT" '.tags[$tag].app_version // ""' sbom.json 2>/dev/null || echo "")
             echo "$OLD_VERSION" > .version-old
 
-            # Build
-            $DBUILD -v build --variant "$VARIANT" --arch "$ARCH"
+            # Build. On failure, say whether the kernel killed something.
+            $DBUILD -v build --variant "$VARIANT" --arch "$ARCH" || {
+              rc=$?
+              echo "=== build failed (rc=$rc): kernel kills, swap ==="
+              dmesg | grep -i 'was killed' || echo "no OOM kill in dmesg"
+              swapinfo -m
+              exit "$rc"
+            }
 
             # Extract new version from built image
             NEW_VERSION=$(podman run --rm --entrypoint "" "ghcr.io/daemonless/${IMAGE_NAME}:build-${VARIANT}" cat /app/version 2>/dev/null || echo "")
