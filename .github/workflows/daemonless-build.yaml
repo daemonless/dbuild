@@ -52,6 +52,16 @@ on:
         required: false
         type: boolean
         default: false
+      vm_mem:
+        description: 'FreeBSD VM memory in MB. Above the runner''s 16 GB only with host_swap_gb.'
+        required: false
+        type: number
+        default: 12288
+      host_swap_gb:
+        description: 'Swap to add on the runner (GB) so vm_mem can exceed its RAM. 0 = none. For builds where a single compiler needs more than the VM can get (openobserve).'
+        required: false
+        type: number
+        default: 0
 
 env:
   REGISTRY: ghcr.io
@@ -184,6 +194,27 @@ jobs:
       - name: Prepare VM data directory
         run: sudo mkdir -p /mnt/freebsd-vm && sudo chmod 777 /mnt/freebsd-vm
 
+      # The VM's memory is QEMU's memory: past the runner's 16 GB it can only
+      # live in runner swap. Sized from free disk so the build keeps 30 GB.
+      - name: Runner swap for a large VM
+        if: inputs.host_swap_gb > 0
+        run: |
+          set -eu
+          want=${{ inputs.host_swap_gb }}
+          free_gb=$(df -BG --output=avail /mnt | tail -1 | tr -dc 0-9)
+          gb=$(( want < free_gb - 30 ? want : free_gb - 30 ))
+          if [ "$gb" -lt 8 ]; then
+            echo "::error::only ${free_gb} GB free on /mnt: no room for runner swap"
+            exit 1
+          fi
+          sudo fallocate -l "${gb}G" /mnt/runner.swap
+          sudo chmod 600 /mnt/runner.swap
+          sudo mkswap /mnt/runner.swap >/dev/null
+          sudo swapon /mnt/runner.swap
+          echo "runner swap: ${gb} GB (asked ${want}, ${free_gb} GB free on /mnt)"
+          free -g
+          df -h / /mnt
+
       # Remote VNC only on a run with debug logging on (Re-run jobs -> Enable
       # debug logging). The password is made for this run and printed only
       # encrypted to the SSH keys of whoever started or re-ran it; no keys, no
@@ -230,7 +261,7 @@ jobs:
           arch: ${{ matrix.vm_arch }}
           sync: ${{ matrix.vm_sync }}
           # The action's 6144 MB OOMs large Rust builds; the public runner has 16 GB.
-          mem: 12288
+          mem: ${{ inputs.vm_mem }}
           usesh: true
           copyback: true
           data-dir: /mnt/freebsd-vm
@@ -243,6 +274,13 @@ jobs:
             chmod 0600 /swapfile
             mdconfig -a -t vnode -f /swapfile -u 0
             swapon /dev/md0
+
+            # With runner swap the guest's RAM is partly on disk: keep ZFS's
+            # cache small so the runner swaps compiler memory, not file cache.
+            if [ "${{ inputs.host_swap_gb }}" -gt 0 ]; then
+              sysctl vfs.zfs.arc.max=2147483648
+              sysctl hw.physmem
+            fi
 
             # build-tools assets are amd64-bare/-aarch64/-riscv64 -- fixed
             # naming, independent of dbuild's registry-tag arch_suffix.
