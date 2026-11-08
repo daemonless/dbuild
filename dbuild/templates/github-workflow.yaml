@@ -8,6 +8,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: read
+
 jobs:
   build:
     uses: daemonless/dbuild/.github/workflows/daemonless-build.yaml@main
