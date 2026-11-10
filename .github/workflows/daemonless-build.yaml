@@ -732,7 +732,7 @@ jobs:
       contents: read
     steps:
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.3
 
       - name: Login to GHCR
         # cosign's own login writes credentials where cosign's keychain reads
@@ -796,7 +796,7 @@ jobs:
       contents: read
     steps:
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.3
 
       - name: Login to GHCR
         run: cosign login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
