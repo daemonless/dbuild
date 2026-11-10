@@ -205,6 +205,51 @@ class TestReadmeCliDeployment(unittest.TestCase):
                 self.assertNotIn(gone, readme)
 
 
+class TestReadmeDefaultTag(unittest.TestCase):
+    """The README's image tag is the default variant's when no latest is published."""
+
+    def _readme(self, variants: str) -> str:
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            (repo / ".daemonless").mkdir()
+            (repo / "compose.yaml").write_text(COMPOSE_YAML.format(name="testapp").replace("  docs: manual\n", ""))
+            (repo / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            (repo / ".daemonless" / "config.yaml").write_text("build:\n  variants:\n" + variants)
+            with _chdir(repo):
+                cfg = dbuild_config.load(repo)
+                self.assertEqual(docs.run(cfg, argparse.Namespace(community=None)), 0)
+            return (repo / "README.md").read_text()
+
+    def test_default_variant_without_latest(self):
+        readme = self._readme(
+            "    - tag: \"15\"\n"
+            "    - tag: 15-latest\n"
+            "      default: true\n"
+        )
+        self.assertIn(':15-latest"', readme)
+        self.assertNotIn(':15"', readme)
+
+    def test_latest_alias_on_the_default_wins(self):
+        readme = self._readme(
+            "    - tag: pkg\n"
+            "      default: true\n"
+            "      aliases: [\"latest\"]\n"
+        )
+        self.assertIn(':latest"', readme)
+
+    def test_a_latest_variant_wins_over_the_default(self):
+        readme = self._readme(
+            "    - tag: latest\n"
+            "    - tag: pkg\n"
+            "      default: true\n"
+        )
+        self.assertIn(':latest"', readme)
+
+    def test_no_default_falls_back_to_the_first(self):
+        readme = self._readme("    - tag: \"15\"\n    - tag: \"16\"\n")
+        self.assertIn(':15"', readme)
+
+
 class TestReadmeWithSidecar(unittest.TestCase):
     """An app shipped with its database is documented as its real compose.
 

@@ -767,9 +767,12 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
             }
             for v in cfg.variants
         ],
+        # The tag fjord installs: latest when a variant is tagged latest or
+        # the default carries it, else the default variant, not the first.
         "default_tag": next(
             (a for v in cfg.variants if v.default for a in ["latest"] if a in v.aliases),
-            cfg.variants[0].tag if cfg.variants else "latest",
+            "latest" if any(v.tag == "latest" for v in cfg.variants)
+            else next((v.tag for v in cfg.variants if v.default), cfg.variants[0].tag if cfg.variants else "latest"),
         ),
         "architectures": cfg.architectures,
         "appjail": appjail_meta,
