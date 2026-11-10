@@ -51,7 +51,10 @@ def _run(
     cmd = _priv_prefix() + cmd
     if not quiet:
         log.info(f"$ {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=capture, text=True)
+    # appjail pages `logs read` through $PAGER even on a pipe, and less waits
+    # on a terminal nobody has: the run hangs.
+    env = {**os.environ, "PAGER": "cat"}
+    result = subprocess.run(cmd, capture_output=capture, text=True, env=env)
     if check and result.returncode != 0:
         stderr = result.stderr.strip() if result.stderr else ""
         raise AppJailError(cmd, result.returncode, stderr)
