@@ -373,8 +373,11 @@ doas podman save ghcr.io/daemonless/myapp:build-latest | ssh jupiter doas podman
 ```
 
 Each test is `"pass"`, `"fail"`, or `"skip"`. The `ready` key can also be
-`"timeout"`: the log ready-pattern never matched but the run continued —
-worth checking for a missing s6 `notification-fd` or a stale `ready:` regex.
+`"port"`: the port accepted a connection before any log line matched the
+ready pattern, so `cit.ready` (or the built-in patterns) is unused for this
+image; or `"timeout"`: neither happened within `wait`, the run continued and
+the port/health checks decided. A `timeout` on an image that then passes
+means a stale `ready:` regex (or, on an s6 image, a missing `notification-fd`).
 
 ## Development
 

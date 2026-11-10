@@ -265,6 +265,23 @@ def _resolve_mode(
 
 # ── Ready-pattern log waiting ────────────────────────────────────────
 
+def _port_open(ip: str, port: int, timeout: float = 1.0) -> bool:
+    """One TCP connect attempt; True when something accepts on ip:port."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        return sock.connect_ex((ip, port)) == 0
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def _s6_image(repo_dir: Path | None = None) -> bool:
+    """Whether the repo ships s6 service dirs (the notification-fd hint applies)."""
+    return ((repo_dir or Path.cwd()) / "root" / "etc" / "services.d").is_dir()
+
+
 def _wait_for_ready(
     cname: str,
     patterns: str,
@@ -272,17 +289,29 @@ def _wait_for_ready(
     *,
     backend: ContainerBackend,
     poll_interval: float = 3.0,
+    ip: str | None = None,
+    port: int | None = None,
+    s6_hint: bool = False,
 ) -> str:
-    """Poll container logs for ready patterns.
+    """Poll container logs for ready patterns, racing them against the port.
 
-    Returns ``"ready"`` when a pattern matched, ``"timeout"`` when the
-    timeout elapsed without a match (non-fatal -- the port/health checks
-    decide), ``"crashed"`` when a fatal crash pattern is detected, or
-    ``"exited"`` when the container died during the wait.
+    Returns ``"ready"`` when a pattern matched, ``"port"`` when *ip*:*port*
+    accepted a connection before any pattern did (the app is up; the
+    pattern was only ever a fast path), ``"timeout"`` when the timeout
+    elapsed with neither (non-fatal -- the port/health checks decide),
+    ``"crashed"`` when a fatal crash pattern is detected, or ``"exited"``
+    when the container died during the wait.
+
+    Without a port the wait is pattern-only; the PUID phase uses that to
+    wait for init to finish, which no open port can prove.
     """
     compiled = re.compile(patterns)
-    elapsed = 0.0
-    while elapsed < timeout:
+    # Wall clock, not a sum of sleeps: a connect that hangs for its own
+    # timeout is time spent too, and the old sum stretched 120 s to 200 s.
+    start = time.monotonic()
+    deadline = start + timeout
+    while time.monotonic() < deadline:
+        elapsed = time.monotonic() - start
         if not backend.running(cname, quiet=True):
             log.error("Container exited during ready wait")
             for line in backend.logs(cname).splitlines()[-50:]:
@@ -309,13 +338,25 @@ def _wait_for_ready(
                 log.info(f"  {line}")
             return "crashed"
 
-        time.sleep(poll_interval)
-        elapsed += poll_interval
+        if ip and port and _port_open(ip, port):
+            log.info(
+                f"Port {port} open after {elapsed:.1f}s with no ready line matched "
+                "-- cit.ready is unused for this image"
+            )
+            return "port"
 
-    log.warn(
-        f"No ready signal after {timeout}s -- check the ready pattern, or a "
-        "missing s6 notification-fd if the run script uses s6-ready-when"
-    )
+        time.sleep(poll_interval)
+
+    hint = ""
+    if s6_hint:
+        hint = ", or a missing s6 notification-fd if the run script uses s6-ready-when"
+    if port:
+        log.warn(
+            f"No ready signal after {timeout}s: no log line matched the ready pattern "
+            f"and port {port} never opened -- check the ready pattern{hint}"
+        )
+    else:
+        log.warn(f"No ready signal after {timeout}s -- check the ready pattern{hint}")
     return "timeout"  # not fatal -- the port/health check will catch failures
 
 
@@ -381,19 +422,14 @@ def _test_port(
 ) -> bool:
     """Wait for a TCP port to be listening using stdlib socket."""
     log.info(f"Waiting for {ip}:{port} (timeout: {timeout}s)")
-    elapsed = 0.0
-    while elapsed < timeout:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(min(2.0, max(0.01, float(timeout) - elapsed)))
-        try:
-            result = sock.connect_ex((ip, port))
-            if result == 0:
-                log.info(f"Port ready after {elapsed:.1f}s")
-                return True
-        finally:
-            sock.close()
+    start = time.monotonic()
+    deadline = start + timeout
+    while time.monotonic() < deadline:
+        elapsed = time.monotonic() - start
+        if _port_open(ip, port, min(2.0, max(0.01, float(timeout) - elapsed))):
+            log.info(f"Port ready after {elapsed:.1f}s")
+            return True
         time.sleep(poll_interval)
-        elapsed += poll_interval
 
     log.error(f"Port {port} not listening after {timeout}s")
     return False
@@ -425,10 +461,12 @@ def _test_health(
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
 
-    elapsed = 0.0
+    start = time.monotonic()
+    deadline = start + timeout
     last = "no response"
     http_timeout = min(5.0, max(0.1, float(timeout)))
-    while elapsed < timeout:
+    while time.monotonic() < deadline:
+        elapsed = time.monotonic() - start
         try:
             if https:
                 conn = http.client.HTTPSConnection(ip, port, timeout=http_timeout, context=ctx)
@@ -451,7 +489,6 @@ def _test_health(
             pass
 
         time.sleep(poll_interval)
-        elapsed += poll_interval
 
     log.error(f"Health check failed after {timeout}s (last: {last})")
     return False
@@ -667,8 +704,11 @@ def _functional_checks(
             return 1
         log.info(f"Container IP: {ip}")
         if mode in ("health", "screenshot"):
-            state = _wait_for_ready(cname, ready_patterns, test.wait, backend=backend)
-            results["ready"] = {"ready": "pass", "timeout": "timeout"}.get(state, "fail")
+            state = _wait_for_ready(
+                cname, ready_patterns, test.wait, backend=backend,
+                ip=ip, port=port, s6_hint=_s6_image(),
+            )
+            results["ready"] = {"ready": "pass", "port": "port", "timeout": "timeout"}.get(state, "fail")
             if state in ("exited", "crashed"):
                 return 1
 
@@ -1125,7 +1165,10 @@ def run_screenshot(cfg: Config, args: argparse.Namespace) -> int:
             log.info(f"Container IP: {ip}")
 
             # Wait for ready
-            state = _wait_for_ready(container_name, ready_patterns, test.wait, backend=backend)
+            state = _wait_for_ready(
+                container_name, ready_patterns, test.wait, backend=backend,
+                ip=ip, port=port, s6_hint=_s6_image(repo_dir),
+            )
             if state in ("exited", "crashed"):
                 return 1
 
