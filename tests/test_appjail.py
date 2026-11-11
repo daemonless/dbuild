@@ -12,15 +12,13 @@ def test_run_sets_pager_to_cat():
 
     def fake_run(cmd, **kwargs):
         seen["cmd"] = cmd
-        seen["env"] = kwargs.get("env")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     with (
         patch("dbuild.appjail.subprocess.run", side_effect=fake_run),
-        patch("dbuild.appjail._priv_prefix", return_value=[]),
-        patch.dict("os.environ", {"PAGER": "less"}),
+        patch("dbuild.appjail._priv_prefix", return_value=["doas"]),
     ):
         appjail._run(["appjail", "logs", "read", "jails/x/container/y.log"])
 
-    assert seen["cmd"][0] == "appjail"
-    assert seen["env"]["PAGER"] == "cat"
+    # env(1) sits between doas and appjail, so doas cannot drop the variable.
+    assert seen["cmd"][:4] == ["doas", "env", "PAGER=cat", "appjail"]
