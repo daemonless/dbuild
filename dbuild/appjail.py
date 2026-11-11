@@ -48,7 +48,10 @@ def _run(
     check: bool = True,
     quiet: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    cmd = _priv_prefix() + cmd
+    # appjail pages `logs read` through $PAGER even on a pipe, and less waits
+    # on a terminal nobody has: the run hangs. doas drops the environment, so
+    # set PAGER past it with env(1).
+    cmd = [*_priv_prefix(), "env", "PAGER=cat", *cmd]
     if not quiet:
         log.info(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=capture, text=True)

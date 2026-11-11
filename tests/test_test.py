@@ -369,6 +369,36 @@ class TestResolveImageRef(unittest.TestCase):
         self.assertIsNone(ref)
 
 
+class _FakeClock:
+    """time.monotonic/time.sleep stand-in: sleep advances the clock."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+class _fake_clock:
+    """Patch dbuild.test's time.sleep and time.monotonic with one _FakeClock."""
+
+    def __enter__(self):
+        self.clock = _FakeClock()
+        self._p1 = patch("dbuild.test.time.sleep", side_effect=self.clock.advance)
+        self._p2 = patch("dbuild.test.time.monotonic", side_effect=self.clock.monotonic)
+        self._p1.start()
+        self._p2.start()
+        return self.clock
+
+    def __exit__(self, *exc):
+        self._p2.stop()
+        self._p1.stop()
+        return False
+
+
 class _FakeReadyBackend:
     """Minimal backend fake for _wait_for_ready()."""
 
@@ -394,9 +424,64 @@ class TestWaitForReady(unittest.TestCase):
 
     def test_timeout_when_no_match(self):
         be = _FakeReadyBackend(logs="still warming up\n")
-        with patch("dbuild.test.time.sleep"):
+        with _fake_clock():
             state = cit._wait_for_ready("c", r"Server started", 3, backend=be)
         self.assertEqual(state, "timeout")
+
+    def test_port_open_ends_the_wait(self):
+        # No log line ever matches, but the app accepts on its port: that is
+        # ready, and the wait must not run to its timeout.
+        be = _FakeReadyBackend(logs="[init] Executing as bsd: /daemonless/libexec/app\n")
+        with _fake_clock() as clock, patch("dbuild.test._port_open", return_value=True):
+            state = cit._wait_for_ready(
+                "c", r"Server started", 120, backend=be, ip="10.88.0.2", port=8080,
+            )
+        self.assertEqual(state, "port")
+        self.assertLess(clock.now, 10)
+
+    def test_pattern_wins_over_port(self):
+        be = _FakeReadyBackend(logs="Server started\n")
+        with _fake_clock(), patch("dbuild.test._port_open", return_value=True):
+            state = cit._wait_for_ready(
+                "c", r"Server started", 10, backend=be, ip="10.88.0.2", port=8080,
+            )
+        self.assertEqual(state, "ready")
+
+    def test_without_port_the_wait_is_pattern_only(self):
+        # The PUID phase waits for init to finish; an open port proves nothing there.
+        be = _FakeReadyBackend(logs="still warming up\n")
+        with _fake_clock(), patch("dbuild.test._port_open", return_value=True) as po:
+            state = cit._wait_for_ready("c", r"Server started", 3, backend=be)
+        self.assertEqual(state, "timeout")
+        po.assert_not_called()
+
+    def test_timeout_is_wall_clock_not_a_sum_of_sleeps(self):
+        # Each log read costs 4 s of wall clock; with a 3 s poll interval the
+        # old sum-of-sleeps loop would poll 10/3 -> 4 times (28 s real time).
+        be = _FakeReadyBackend(logs="still warming up\n")
+        with _fake_clock() as clock:
+            orig = be.logs
+
+            def slow_logs(cname, quiet=False):
+                clock.advance(4)
+                return orig(cname, quiet=quiet)
+
+            be.logs = slow_logs
+            state = cit._wait_for_ready("c", r"Server started", 10, backend=be)
+        self.assertEqual(state, "timeout")
+        self.assertLess(clock.now, 10 + 7 + 1)  # one poll (4+3) may overrun the deadline
+
+    def test_timeout_warning_names_the_port_and_s6_only_when_asked(self):
+        be = _FakeReadyBackend(logs="still warming up\n")
+        with _fake_clock(), patch("dbuild.test._port_open", return_value=False), \
+                patch("dbuild.test.log.warn") as warn:
+            cit._wait_for_ready("c", r"x", 3, backend=be, ip="10.88.0.2", port=8080)
+        msg = warn.call_args[0][0]
+        self.assertIn("port 8080 never opened", msg)
+        self.assertNotIn("notification-fd", msg)
+        with _fake_clock(), patch("dbuild.test.log.warn") as warn:
+            cit._wait_for_ready("c", r"x", 3, backend=be, s6_hint=True)
+        self.assertIn("notification-fd", warn.call_args[0][0])
 
     def test_exited_when_container_dies(self):
         be = _FakeReadyBackend(running=False)
