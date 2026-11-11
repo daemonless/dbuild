@@ -831,15 +831,23 @@ jobs:
     if: always() && !failure() && !cancelled() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      # Dispatch as the daemonless-dispatch App (installed on daemonless-io
+      # only) so the deploy run is attributed to a bot, not to a PAT owner.
+      - uses: actions/create-github-app-token@v3
+        id: dispatch-token
+        with:
+          app-id: ${{ secrets.DISPATCH_APP_ID }}
+          private-key: ${{ secrets.DISPATCH_APP_PRIVATE_KEY }}
+          owner: daemonless
+          repositories: daemonless-io
       - name: Trigger status update
         env:
-          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+          IMAGE: ${{ inputs.image_name }}
         run: |
-          curl -X POST \
-            -H "Authorization: token $DISPATCH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/daemonless/daemonless-io/dispatches \
-            -d '{"event_type": "status-update", "client_payload": {"image": "${{ inputs.image_name }}"}}'
+          gh api repos/daemonless/daemonless-io/dispatches \
+            -f event_type=status-update \
+            -f "client_payload[image]=$IMAGE"
 
   # Announce genuinely new images to a dedicated Discord channel. Runs once
   # after the whole build matrix (not per variant/arch leg) so a new image
