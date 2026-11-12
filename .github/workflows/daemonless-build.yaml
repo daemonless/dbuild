@@ -717,10 +717,11 @@ jobs:
             git reset -q --hard origin/main
             for f in $FILES; do cp "/tmp/ours/$f" "$f"; done
 
-            # `generated` changes every run; only commit when the versions or
-            # package lists actually changed, so no-op rebuilds stay silent.
-            git show HEAD:sbom.json 2>/dev/null | jq -S 'del(.generated)' > /tmp/sbom-old.json || echo '{}' > /tmp/sbom-old.json
-            jq -S 'del(.generated)' sbom.json > /tmp/sbom-new.json
+            # The top-level and per-tag `generated` timestamps change every
+            # run; only commit when the versions or package lists actually
+            # changed, so no-op rebuilds stay silent.
+            git show HEAD:sbom.json 2>/dev/null | jq -S 'del(.generated, .tags[].generated)' > /tmp/sbom-old.json || echo '{}' > /tmp/sbom-old.json
+            jq -S 'del(.generated, .tags[].generated)' sbom.json > /tmp/sbom-new.json
             if cmp -s /tmp/sbom-old.json /tmp/sbom-new.json; then
               git checkout -q -- sbom.json
             fi
