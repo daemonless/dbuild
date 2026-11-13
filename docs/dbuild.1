@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-11-03" "dbuild 1.13.1" "User Commands"
+.TH DBUILD 1 "2026-11-12" "dbuild 1.13.1" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -213,7 +213,10 @@ Generate starter files for a new dbuild project.
 show this help message and exit
 .TP
 \fB--freebsd-port\fR
-initialize from a FreeBSD port (e.g. net-p2p/bazarr)
+scaffold from a FreeBSD port: category/name (net-p2p/transmission), a bare port or package name, or a FreshPorts URL; reads the ports tree ($PORTSDIR, /usr/ports), else the pkg repo
+.TP
+\fB--dir\fR
+directory to scaffold into, created if missing (default: the current directory, or ./<name> when run from a workspace of image repos)
 .TP
 \fB--flavors\fR
 comma-separated FreeBSD port FLAVORS to scaffold (e.g. lua,wolfssl); crossed with --variants into one tag per combination (e.g. pkg-lua, pkg-wolfssl)
@@ -231,10 +234,10 @@ application category (default: Apps)
 application type (default: generic)
 .TP
 \fB--port\fR
-default application port (default: 8080)
+web/API port (default: the port's rc script or pkg-message with --freebsd-port, else 8080)
 .TP
 \fB--variants\fR
-comma-separated list of variants to scaffold (default: latest)
+comma-separated list of variants to scaffold (default: latest, or pkg,pkg-latest with --freebsd-port)
 .TP
 \fB--community\fR
 override community help link (e.g. Discord:https://...)

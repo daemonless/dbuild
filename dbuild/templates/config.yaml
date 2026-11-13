@@ -4,13 +4,14 @@
 # Full reference: https://github.com/daemonless/dbuild
 
 build:
-  variants:
-{{ variants_block }}
+{{ build_block }}
 
 cit:
   mode: health
   port: {{ port }}
   health: /
+  # A line the app logs once it serves; without a match the test waits out its timeout
+  # ready: "listening on"
   {%- if mlock %}
   annotations:
     - "org.freebsd.jail.allow.mlock=true"

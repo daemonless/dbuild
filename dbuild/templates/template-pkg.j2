@@ -1,11 +1,14 @@
 ARG BASE_VERSION=15.1
-FROM ghcr.io/daemonless/base:${BASE_VERSION}
+FROM ghcr.io/daemonless/base-exec:${BASE_VERSION}
 
 ARG FREEBSD_ARCH=amd64
 ARG PKG_NAME="{{ pkgname }}"
-{% if packages == pkgname %}ARG PACKAGES="${PKG_NAME}"
-{% else %}ARG PACKAGES="{{ packages }}"
-{% endif %}
+ARG PACKAGES="{{ packages_arg }}"
+ARG HEALTHCHECK_ENDPOINT="http://127.0.0.1:{{ ports[0].port }}/"
+
+ENV HEALTHCHECK_URL="${HEALTHCHECK_ENDPOINT}"
+
+# --- Metadata (Injected by Generator) ---
 LABEL org.opencontainers.image.title="{{ title }}" \
       org.opencontainers.image.description="{{ description }}" \
       org.opencontainers.image.source="{{ repo_url }}" \
@@ -14,12 +17,16 @@ LABEL org.opencontainers.image.title="{{ title }}" \
       org.opencontainers.image.vendor="daemonless" \
       org.opencontainers.image.authors="daemonless" \
       io.daemonless.category="{{ category }}" \
-      io.daemonless.port="{{ port }}" \
+      io.daemonless.port="{{ ports[0].port }}" \
+      io.daemonless.volumes="{{ volumes | map(attribute='path') | join(',') }}" \
+{%- if mlock %}
+      org.freebsd.jail.allow.mlock="required" \
+{%- endif %}
       io.daemonless.arch="${FREEBSD_ARCH}" \
       io.daemonless.pkg-source="pkg" \
+      io.daemonless.pkg-name="${PKG_NAME}" \
       io.daemonless.packages="${PACKAGES}" \
-      io.daemonless.pkg-name="${PKG_NAME}"{%- if mlock %} \
-      org.freebsd.jail.allow.mlock="required"{%- endif %}
+      io.daemonless.healthcheck-url="${HEALTHCHECK_ENDPOINT}"
 
 # Install {{ name }}
 RUN pkg update && \
@@ -31,12 +38,12 @@ RUN pkg update && \
 
 # Copy root filesystem
 COPY root/ /
+RUN chmod +x /daemonless/libexec/{{ name }} /daemonless/init.d/*
 
-# Set permissions
-RUN chmod +x /etc/services.d/{{ name }}/run /healthz
+CMD ["/daemonless/libexec/{{ name }}"]
 
 # Expose
-EXPOSE {{ port }}
+EXPOSE {{ ports | map(attribute='port') | join(' ') }}
 
 # Volumes
-VOLUME /config
+VOLUME {{ volumes | map(attribute='path') | join(' ') }}
