@@ -1,11 +1,17 @@
 ARG BASE_VERSION=15.1
-FROM ghcr.io/daemonless/base:${BASE_VERSION}
+FROM ghcr.io/daemonless/base-exec:${BASE_VERSION}
 
 ARG FREEBSD_ARCH=amd64
 ARG PACKAGES="{{ run_deps }}"
 ARG APP_VERSION="latest"
 ARG DOWNLOAD_URL="https://example.com/{{ name }}-${APP_VERSION}.tar.gz"
+ARG UPSTREAM_URL="https://api.github.com/repos/OWNER/{{ name }}/releases/latest"
+ARG UPSTREAM_JQ=".tag_name"
+ARG HEALTHCHECK_ENDPOINT="http://127.0.0.1:{{ ports[0].port }}/"
 
+ENV HEALTHCHECK_URL="${HEALTHCHECK_ENDPOINT}"
+
+# --- Metadata (Injected by Generator) ---
 LABEL org.opencontainers.image.title="{{ title }}" \
       org.opencontainers.image.description="{{ description }}" \
       org.opencontainers.image.source="{{ repo_url }}" \
@@ -14,13 +20,16 @@ LABEL org.opencontainers.image.title="{{ title }}" \
       org.opencontainers.image.vendor="daemonless" \
       org.opencontainers.image.authors="daemonless" \
       io.daemonless.category="{{ category }}" \
-      io.daemonless.port="{{ port }}" \
-      io.daemonless.arch="${FREEBSD_ARCH}" \
-      io.daemonless.packages="${PACKAGES}"
-
+      io.daemonless.port="{{ ports[0].port }}" \
+      io.daemonless.volumes="{{ volumes | map(attribute='path') | join(',') }}" \
 {%- if mlock %}
-LABEL org.freebsd.jail.allow.mlock="required"
+      org.freebsd.jail.allow.mlock="required" \
 {%- endif %}
+      io.daemonless.arch="${FREEBSD_ARCH}" \
+      io.daemonless.upstream-url="${UPSTREAM_URL}" \
+      io.daemonless.upstream-jq="${UPSTREAM_JQ}" \
+      io.daemonless.packages="${PACKAGES}" \
+      io.daemonless.healthcheck-url="${HEALTHCHECK_ENDPOINT}"
 
 # Install dependencies
 RUN pkg update && \
@@ -30,19 +39,19 @@ RUN pkg update && \
 
 # Download and install {{ name }}
 RUN fetch -qo /tmp/{{ name }}.tar.gz "${DOWNLOAD_URL}" && \
-    mkdir -p /usr/local/share/{{ name }} && \
+    mkdir -p /app /usr/local/share/{{ name }} && \
     tar -xzf /tmp/{{ name }}.tar.gz -C /usr/local/share/{{ name }} --strip-components=1 && \
     rm /tmp/{{ name }}.tar.gz && \
     echo "${APP_VERSION}" > /app/version
 
 # Copy root filesystem
 COPY root/ /
+RUN chmod +x /daemonless/libexec/{{ name }} /daemonless/init.d/*
 
-# Set permissions
-RUN chmod +x /etc/services.d/{{ name }}/run /healthz
+CMD ["/daemonless/libexec/{{ name }}"]
 
 # Expose
-EXPOSE {{ port }}
+EXPOSE {{ ports | map(attribute='port') | join(' ') }}
 
 # Volumes
-VOLUME /config
+VOLUME {{ volumes | map(attribute='path') | join(' ') }}

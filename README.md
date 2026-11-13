@@ -277,10 +277,41 @@ $ dbuild info
 Scaffold a new dbuild project with starter files.
 
 ```sh
-dbuild init                     # config.yaml + Containerfile
+dbuild init                     # config.yaml, compose.yaml, Containerfile.j2, root/
 dbuild init --github            # + GitHub Actions workflow
 dbuild init --woodpecker        # + Woodpecker CI pipeline
 ```
+
+The image is a single process on `base-exec`: `/init` runs the setup script
+`root/daemonless/init.d/20-<name>` as root, then execs the launcher
+`root/daemonless/libexec/<name>` (the `CMD`) as `bsd`. Health is the base's
+`/healthz` against `HEALTHCHECK_URL`. The `Containerfile*.j2` keep the title,
+description, category, ports and volumes as placeholders: `dbuild generate`
+fills them from `compose.yaml`, which stays the one place to edit them. A
+pkg-only scaffold makes `pkg` the default tag with a `latest` alias.
+
+From a FreeBSD port, the port fills in what it knows:
+
+```sh
+dbuild init --freebsd-port net-p2p/transmission-components
+dbuild init --freebsd-port gitea --port 3000           # bare name: looked up in the tree, then pkg
+dbuild init --freebsd-port https://www.freshports.org/sysutils/backrest/
+dbuild init --freebsd-port net-p2p/qbittorrent --flavors nox   # one pkg tag per flavor
+```
+
+| From the port | Goes to |
+|---|---|
+| `COMMENT`, `WWW`, `LICENSE` (+`LICENSE_COMB`) as SPDX, category | compose.yaml, image labels |
+| rc script `command=`/`procname=` (through `/usr/sbin/daemon`), plist `bin/` entries | the launcher, with the rc flags and conf dirs as a comment |
+| rc `*_port` default or a `localhost:PORT` in pkg-message | `cit.port` and the compose `ports` (else 8080 and a warning) |
+| `FLAVORS` | listed; `--flavors a,b` scaffolds `pkg-a`, `pkg-b` |
+
+Defaults change with `--freebsd-port`: variants are `pkg,pkg-latest`, and from a
+directory of image repos the files land in `./<name>/` (override with `--dir`).
+Without a ports tree (`$PORTSDIR`, `/usr/ports`) the labels come from `pkg rquery`;
+the launcher then needs the binary set by hand. Every scaffold ends with the
+items left to review and the next commands (`dbuild logo`, `dbuild generate`,
+`dbuild build`, `dbuild test`).
 
 ## Global Options
 

@@ -327,7 +327,19 @@ def _make_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--freebsd-port",
         metavar="PORT",
-        help="initialize from a FreeBSD port (e.g. net-p2p/bazarr)",
+        help=(
+            "scaffold from a FreeBSD port: category/name (net-p2p/transmission), "
+            "a bare port or package name, or a FreshPorts URL; reads the ports "
+            "tree ($PORTSDIR, /usr/ports), else the pkg repo"
+        ),
+    )
+    init_parser.add_argument(
+        "--dir",
+        metavar="DIR",
+        help=(
+            "directory to scaffold into, created if missing (default: the current "
+            "directory, or ./<name> when run from a workspace of image repos)"
+        ),
     )
     init_parser.add_argument(
         "--flavors",
@@ -363,14 +375,18 @@ def _make_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--port",
         type=int,
-        default=8080,
-        help="default application port (default: 8080)",
+        help=(
+            "web/API port (default: the port's rc script or pkg-message "
+            "with --freebsd-port, else 8080)"
+        ),
     )
     init_parser.add_argument(
         "--variants",
         metavar="LIST",
-        default="latest",
-        help="comma-separated list of variants to scaffold (default: latest)",
+        help=(
+            "comma-separated list of variants to scaffold "
+            "(default: latest, or pkg,pkg-latest with --freebsd-port)"
+        ),
     )
     init_parser.add_argument(
         "--community",

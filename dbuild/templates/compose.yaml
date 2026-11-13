@@ -26,9 +26,7 @@ services:
   {{ name }}:
     image: ghcr.io/daemonless/{{ name }}:latest
     container_name: {{ name }}
-    # "always", not "unless-stopped": FreeBSD's podman rc.d only auto-starts
-    # containers with restart-policy=always at boot (needs podman_enable=YES).
-    restart: always
+    restart: unless-stopped
 {%- if mlock %}
 
     annotations:
@@ -44,4 +42,4 @@ services:
       - /path/to/containers/{{ name }}:/config
 
     ports:
-      - {{ port }}:{{ port }}
+      - "{{ port }}:{{ port }}"
