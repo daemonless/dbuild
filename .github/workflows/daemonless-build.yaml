@@ -52,6 +52,11 @@ on:
         required: false
         type: boolean
         default: false
+      build_timeout:
+        description: 'Minutes before a build job is cancelled. A hung VM otherwise runs to the 6-hour cap; the slowest real build in the fleet takes about 150.'
+        required: false
+        type: number
+        default: 180
 
 env:
   REGISTRY: ghcr.io
@@ -141,6 +146,7 @@ jobs:
     needs: detect
     if: ${{ needs.detect.outputs.matrix != '' && needs.detect.outputs.compose_only != 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.build_timeout }}
     permissions:
       contents: read
       packages: write
@@ -447,6 +453,7 @@ jobs:
     needs: detect
     if: ${{ inputs.linux && needs.detect.outputs.compose_only != 'true' }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ inputs.build_timeout }}
     permissions:
       contents: read
       packages: write
@@ -690,28 +697,49 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # `generated` changes every run — only commit when the versions or
-          # package lists actually changed, so no-op rebuilds stay silent.
-          git show HEAD:sbom.json 2>/dev/null | jq -S 'del(.generated)' > /tmp/sbom-old.json || echo '{}' > /tmp/sbom-old.json
-          jq -S 'del(.generated)' sbom.json > /tmp/sbom-new.json
-          SBOM_CHANGED=1
-          cmp -s /tmp/sbom-old.json /tmp/sbom-new.json && SBOM_CHANGED=0
-
-          git add sbom.json
+          # Keep this run's files aside: main moves while the build runs (the
+          # aarch64 leg and overlapping runs commit too), so each attempt
+          # starts from the current tip and lays our files on top. The newest
+          # build's SBOM is the truth; there is nothing to merge.
+          FILES="sbom.json"
           for f in ${{ steps.generate.outputs.files }}; do
-            [ -f "$f" ] && git add "$f"
+            [ -f "$f" ] && FILES="$FILES $f"
           done
-
-          if [ "$SBOM_CHANGED" = 0 ] && git diff --cached --quiet; then
-            echo "No content change to sbom.json or generated files"
-            exit 0
-          fi
+          mkdir -p /tmp/ours
+          for f in $FILES; do
+            mkdir -p "/tmp/ours/$(dirname "$f")" && cp "$f" "/tmp/ours/$f"
+          done
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update sbom.json and generated files [skip ci]"
-          git pull --rebase origin main
-          git push
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            for f in $FILES; do cp "/tmp/ours/$f" "$f"; done
+
+            # The top-level and per-tag `generated` timestamps change every
+            # run; only commit when the versions or package lists actually
+            # changed, so no-op rebuilds stay silent.
+            git show HEAD:sbom.json 2>/dev/null | jq -S 'del(.generated, .tags[].generated)' > /tmp/sbom-old.json || echo '{}' > /tmp/sbom-old.json
+            jq -S 'del(.generated, .tags[].generated)' sbom.json > /tmp/sbom-new.json
+            if cmp -s /tmp/sbom-old.json /tmp/sbom-new.json; then
+              git checkout -q -- sbom.json
+            fi
+            git add $FILES
+            if git diff --cached --quiet; then
+              echo "No content change to sbom.json or generated files"
+              exit 0
+            fi
+
+            git commit -q -m "Update sbom.json and generated files [skip ci]"
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); main moved, retrying"
+            sleep $((attempt * 10))
+          done
+          echo "Could not push after 5 attempts"
+          exit 1
 
   # Sign the pushed images, and sign the SBOMs onto them as cosign
   # attestations. Runs on Linux (keyless needs the GitHub OIDC token) against
