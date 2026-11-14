@@ -15,27 +15,33 @@
     choice_merge folds them into one block whose varying lines carry the
     picks that keep them; the script shows those. Combinations the merge
     cannot express follow it whole. #}
+{#- A choice that is not for this runtime (runtimes: [podman]) gets no row
+    here, and only the combinations with it at its default are listed, keyed
+    without it: the script builds a form's key from its own rows. #}
 {%- macro choice_form(runtime) -%}
+{%- set shown = [] %}{% for c in choices if runtime in c.runtimes %}{% set _ = shown.append(c) %}{% endfor %}
 {%- set merged = none %}
-{%- if choices_mode == "merged" %}
+{%- if shown and choices_mode == "merged" %}
 {%- set rendered = [] %}
-{%- for cb in all_combos() %}{% set _ = rendered.append(combo_files(cb, runtime, true)) %}{% endfor %}
-{%- set merged = choice_merge(rendered) %}
+{%- for cb in all_combos() if runtime in cb.runtimes %}{% set _ = rendered.append(combo_files(cb, runtime, true)) %}{% endfor %}
+{%- set merged = choice_merge(rendered, runtime) %}
 {%- endif %}
-{%- if choices_capped[runtime] and not merged %}
+{%- if not shown %}
+{{ combo_files(combos[0], runtime) }}
+{% elif choices_capped[runtime] and not merged %}
 {{ choices_capped[runtime] }}
 
 {{ combo_files(combos[0], runtime) }}
 {% else -%}
-<div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}"{% if choices | selectattr("toggle") | list %} data-order="{{ choices | map(attribute='id') | join(' ') }}"{% endif %} markdown>
-{% for c in choices if not c.toggle %}
+<div class="deploy-choices" data-app="{{ name }}" data-runtime="{{ runtime }}"{% if shown | selectattr("toggle") | list %} data-order="{{ shown | map(attribute='id') | join(' ') }}"{% endif %} markdown>
+{% for c in shown if not c.toggle %}
 
 **{{ c.label }}** {{ c.doc }}
 {: .choice data-choice="{{ c.id }}" }
 
 <div class="opts" data-choice="{{ c.id }}">{% for o in c.options %}<button type="button" data-option="{{ o.id }}"{% if o.default %} data-default aria-pressed="true"{% else %} aria-pressed="false"{% endif %}{% if o.doc %} title="{{ o.doc | replace('"', "'") }}"{% endif %}>{{ o.label }}</button>{% endfor %}</div>
 {% endfor %}
-{%- set toggles = choices | selectattr("toggle") | list %}
+{%- set toggles = shown | selectattr("toggle") | list %}
 {%- if toggles %}
 
 <div class="toggles">{% for c in toggles %}<button type="button" class="toggle" data-choice="{{ c.id }}" data-on="{{ c.toggle.on }}" data-off="{{ c.toggle.off }}" aria-pressed="true" title="{{ c.doc | replace('"', "'") }}"><span class="t-name">{{ c.label }}</span><span class="t-doc">{{ c.doc }}</span></button>{% endfor %}</div>
@@ -61,9 +67,9 @@
 </div>
 {% endfor %}
 {%- else %}
-{% for cb in combos %}
+{% for cb in combos if runtime in cb.runtimes %}
 
-<div class="deploy-combo" data-key="{% for sel in cb.selections %}{{ sel.choice }}={{ sel.option }}{{ ";" if not loop.last }}{% endfor %}"{% if not cb.default %} hidden{% endif %} markdown>
+<div class="deploy-combo" data-key="{% for sel in cb.selections if runtime in sel.runtimes %}{{ sel.choice }}={{ sel.option }}{{ ";" if not loop.last }}{% endfor %}"{% if not cb.default %} hidden{% endif %} markdown>
 
 {{ combo_files(cb, runtime) }}
 
@@ -79,11 +85,11 @@
 {% if runtime == "podman" %}
 {{ you_get(cb, cb.parts, "container", merged) }}
 {% if merged %}
-{% for d in cb.docs %}
+{% for d in cb.docs_for.podman %}
 {{ d }}
 {% endfor %}
-{% elif cb.doc %}
-{{ cb.doc }}
+{% elif cb.docs_for.podman %}
+{{ cb.docs_for.podman | join(" ") }}
 {% endif %}
 {#- No .env at all (SQLite: nothing to set): no step asking to fill one in. #}
 {% if cb.example_env_site | trim -%}
@@ -106,11 +112,11 @@ Then run `podman-compose up -d`.
 {% else %}
 {{ you_get(cb, cb.jails, "jail", merged) }}
 {% if merged %}
-{% for d in cb.docs %}
+{% for d in cb.docs_for.appjail %}
 {{ d }}
 {% endfor %}
-{% elif cb.doc %}
-{{ cb.doc }}
+{% elif cb.docs_for.appjail %}
+{{ cb.docs_for.appjail | join(" ") }}
 {% endif %}
 {{ appjail_director_snippet(port_var, cb, merged) }}
 

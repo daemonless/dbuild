@@ -448,7 +448,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 ### Podman Compose
 
 {%- if compose_text and choices %}
-{%- for c in choices %}
+{%- for c in choices if "podman" in c.runtimes %}
 
 **{{ c.label }}.** {{ c.doc }}
 {%- endfor %}
@@ -456,14 +456,16 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
 {{ choices_capped.podman }}
 {%- endif %}
-{%- for cb in (combos[:1] if choices_capped.podman else combos) %}
-{%- if not choices_capped.podman %}
+{#- Only the combinations Podman can reach: an AppJail-only choice at its default. #}
+{%- set pm_combos = [] %}{% for cb in combos if "podman" in cb.runtimes %}{% set _ = pm_combos.append(cb) %}{% endfor %}
+{%- for cb in (pm_combos[:1] if choices_capped.podman or pm_combos | length == 1 else pm_combos) %}
+{%- if not choices_capped.podman and pm_combos | length > 1 %}
 
-#### {{ cb.label }}{% if cb.default %} (default){% endif %}
+#### {{ cb.labels.podman }}{% if cb.default %} (default){% endif %}
 {%- endif %}
-{%- if cb.doc %}
+{%- if cb.docs_for.podman %}
 
-{{ cb.doc }}
+{{ cb.docs_for.podman | join(" ") }}
 {%- endif %}
 
 {%- if cb.example_env | trim %}
@@ -535,10 +537,12 @@ Save as `compose.yaml`, then run `podman-compose up -d`.
 
 {{ choices_capped.appjail }}
 {%- endif %}
-{%- for cb in (combos[:1] if choices_capped.appjail else combos) %}
-{%- if not choices_capped.appjail %}
+{#- Only the combinations AppJail can reach: a podman-only choice at its default. #}
+{%- set aj_combos = [] %}{% for cb in combos if "appjail" in cb.runtimes %}{% set _ = aj_combos.append(cb) %}{% endfor %}
+{%- for cb in (aj_combos[:1] if choices_capped.appjail or aj_combos | length == 1 else aj_combos) %}
+{%- if not choices_capped.appjail and aj_combos | length > 1 %}
 
-#### {{ cb.label }}{% if cb.default %} (default){% endif %}
+#### {{ cb.labels.appjail }}{% if cb.default %} (default){% endif %}
 {%- endif %}
 
 {{ appjail_director_snippet(option=cb) }}
