@@ -688,3 +688,13 @@ class TestLoadWithGlobalConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_split_compose_keeps_env_defaults_whole():
+    from dbuild.config import _split_compose
+
+    assert _split_compose("${RP_PODMAN_DIR:-/path/to/containers/reverse-proxy/podman}:/var/run/podman:ro") == [
+        "${RP_PODMAN_DIR:-/path/to/containers/reverse-proxy/podman}", "/var/run/podman", "ro"]
+    assert _split_compose("/a:/b:ro") == ["/a", "/b", "ro"]
+    assert _split_compose("${P:-80}:80") == ["${P:-80}", "80"]
+    assert _split_compose("127.0.0.1:53:53/udp") == ["127.0.0.1", "53", "53/udp"]
