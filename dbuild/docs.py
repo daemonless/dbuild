@@ -350,10 +350,13 @@ def _site_alerts(text: Any) -> Any:
     return _GITHUB_ALERT_RE.sub(admonition, text)
 
 
-def _combination_count(cfg: Config) -> int:
+def _combination_count(cfg: Config, runtime: str = "") -> int:
+    """How many ways the choices can be answered; on one runtime, counting
+    only the choices it shows."""
     import math
 
-    return math.prod(len(c.options) for c in cfg.metadata.choices) if cfg.metadata.choices else 0
+    cs = [c for c in cfg.metadata.choices if not runtime or c.applies(runtime)]
+    return math.prod(len(c.options) for c in cs) if cs else 0
 
 
 def _choices_mode(cfg: Config) -> str:
@@ -383,10 +386,10 @@ def _capped_note(cfg: Config, runtime: str) -> str:
     """What the docs say in place of the choices once they are past
     MAX_COMBOS (the README; the site when the merge fails), or "" when every
     combination is listed."""
-    count = _combination_count(cfg)
+    count = _combination_count(cfg, runtime)
     if count <= MAX_COMBOS:
         return ""
-    cs = cfg.metadata.choices
+    cs = [c for c in cfg.metadata.choices if c.applies(runtime)]
     where = "its jail from `appjail-director.yml`" if runtime == "appjail" else "its service from `compose.yaml`"
     # Every option only keeps or drops services (the default drops none).
     if all(_pure(o) for c in cs for o in c.options):
@@ -600,10 +603,16 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
             tpl = next((o for o in opts if o.jail_template_file), None)
             combos.append({
                 "id": suffix or "default", "default": is_default,
-                "selections": [{"choice": c.id, "choice_label": c.label, "option": o.id, "label": o.label, "default": o.id == c.default} for c, o in pairs],
+                "selections": [{"choice": c.id, "choice_label": c.label, "option": o.id, "label": o.label, "default": o.id == c.default,
+                                "runtimes": [r for r in choices_mod.RUNTIMES if c.applies(r)]} for c, o in pairs],
+                # A runtime lists a combination only when every choice it does
+                # not show is at its default (AppJail never sees podman's socket).
+                "runtimes": [r for r in choices_mod.RUNTIMES if all(c.applies(r) or o.id == c.default for c, o in pairs)],
+                "labels": {r: ", ".join(o.label for c, o in pairs if c.applies(r)) for r in choices_mod.RUNTIMES},
                 "label": ", ".join(o.label for _, o in pairs),
                 "doc": " ".join(o.doc for _, o in pairs if o.doc),
                 "docs": [o.doc for _, o in pairs if o.doc],
+                "docs_for": {r: [o.doc for c, o in pairs if o.doc and c.applies(r)] for r in choices_mod.RUNTIMES},
                 "parts": parts, "jails": jails, "folders": folders,
                 "appjail": aj, "appjail_env": aj_env,
                 "director_text": director_text, "director_env_text": director_env_text,
@@ -645,14 +654,18 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
         return {"id": c.id, "label": c.label, "doc": c.doc, "options": nodes}
 
     declared = [{"id": c.id, "label": c.label, "doc": c.doc, "default": c.default, "toggle": _toggle(c),
+                 "runtimes": [r for r in choices_mod.RUNTIMES if c.applies(r)],
                  "options": [{"id": o.id, "label": o.label, "doc": o.doc, "default": o.id == c.default} for o in c.options]}
                 for c in cfg.metadata.choices]
-    choice_ids = [c.id for c in cfg.metadata.choices]
-    options = [[o.id for o in sorted(c.options, key=lambda o: o.id != c.default)] for c in cfg.metadata.choices]
-    def merge(rendered: list[str]) -> dict | None:
-        """The site's one block for the combinations' renders (in
-        all_combos' order), or None when they do not merge."""
-        keys = [tuple(sel["option"] for sel in cb["selections"]) for cb in all_combos()]
+    def merge(rendered: list[str], runtime: str = "podman") -> dict | None:
+        """The site's one block for the combinations' renders (all_combos'
+        order, the runtime's combinations only), or None when they do not
+        merge."""
+        shown = [c for c in cfg.metadata.choices if c.applies(runtime)]
+        choice_ids = [c.id for c in shown]
+        options = [[o.id for o in sorted(c.options, key=lambda o: o.id != c.default)] for c in shown]
+        keys = [tuple(sel["option"] for sel in cb["selections"] if runtime in sel["runtimes"])
+                for cb in all_combos() if runtime in cb["runtimes"]]
         got = choice_merge.merge(dict(zip(keys, (r.split("\n") for r in rendered), strict=True)), keys[0], options)
         if got is None:
             return None

@@ -74,6 +74,8 @@ def option_forms(cfg: Any) -> dict[str, dict[str, dict[str, Any]]]:
         base = _director_dict(base_text)
 
     for c in cfg.metadata.choices:
+        if not c.applies("appjail"):
+            continue
         for o in c.options:
             files: dict[str, str] = {}
             hostnames: dict[str, str] = {}

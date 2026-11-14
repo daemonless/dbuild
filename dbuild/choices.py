@@ -61,6 +61,8 @@ except ImportError:  # pragma: no cover
 
 # The database engines dbuild knows how to run. One place: an app that
 # offers postgres gets this service, and a fix here fixes every app.
+RUNTIMES = ("podman", "appjail")
+
 ENGINES: dict[str, dict[str, Any]] = {
     "sqlite": {"label": "SQLite", "type": "sqlite",
                "doc": "A file in the app's config folder. Right for one person, nothing extra to run."},
@@ -142,10 +144,16 @@ class Choice:
     service: str = ""                # the app service the choice wires (database); "" = first
     env_map: dict[str, str] = field(default_factory=dict)   # database: role -> the app's variable
     options: list[Option] = field(default_factory=list)
+    # The runtimes the choice means something on; empty = every one. A choice
+    # about podman's socket has nothing to offer an AppJail install.
+    runtimes: list[str] = field(default_factory=list)
 
     @property
     def default_option(self) -> Option | None:
         return next((o for o in self.options if o.id == self.default), None)
+
+    def applies(self, runtime: str) -> bool:
+        return not self.runtimes or runtime in self.runtimes
 
 
 def _database_options(cid: str, c: dict[str, Any], services: dict[str, Any]) -> tuple[list[Option], dict[str, str]]:
@@ -257,8 +265,10 @@ def parse(meta: dict[str, Any], compose_data: dict[str, Any] | None = None) -> l
                     drop=[str(x) for x in (o.get("drop") or [])],
                 ))
         default = str(c.get("default", "")) or (opts[0].id if opts else "")
+        runtimes = c.get("runtimes") or []
         out.append(Choice(id=str(cid), label=label, kind=kind, doc=doc, default=default,
-                          service=str(c.get("service", "")), env_map=env_map, options=opts))
+                          service=str(c.get("service", "")), env_map=env_map, options=opts,
+                          runtimes=[str(r) for r in runtimes] if isinstance(runtimes, list) else [str(runtimes)]))
     return out
 
 
@@ -276,6 +286,9 @@ def validate(choices: list[Choice], compose_data: dict[str, Any]) -> list[str]:
         if not c.options:
             errors.append(f"{where}: no options")
             continue
+        for r in c.runtimes:
+            if r not in RUNTIMES:
+                errors.append(f"{where}.runtimes: '{r}' is not a runtime (one of {', '.join(RUNTIMES)})")
         if c.default_option is None:
             errors.append(f"{where}: default '{c.default}' is not one of its options")
         elif c.default_option.profile or c.default_option.service_yaml:
@@ -565,5 +578,8 @@ def to_fjord(choices: list[Choice], compose_text: str, compose_data: dict[str, A
                 "hostnames": dict(o.hostnames),
                 "ask": [{"name": a.name, "label": a.label, "default": a.default, "type": a.type, "values": dict(a.values)} for a in o.ask],
             })
-        out.append({"id": c.id, "kind": c.kind, "label": c.label, "doc": c.doc, "default": c.default, "options": opts})
+        entry = {"id": c.id, "kind": c.kind, "label": c.label, "doc": c.doc, "default": c.default, "options": opts}
+        if c.runtimes:
+            entry["runtimes"] = list(c.runtimes)
+        out.append(entry)
     return {"choices": out}

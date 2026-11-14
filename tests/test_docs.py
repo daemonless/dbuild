@@ -1225,3 +1225,127 @@ class TestAppjailBundleCfgRootAndZipFilename(unittest.TestCase):
         self.assertNotIn("RADARR_CONFIG_PATH=/radarr", env_text)
         self.assertIn('data-zip-filename="appjail-director.yml"', mkdocs)
         self.assertNotIn('data-zip-filename="appjail-director.yaml"', mkdocs)
+
+
+# ── Choices limited to a runtime ───────────────────────────────────────
+
+# search only on podman: AppJail shows the database row alone.
+RUNTIME_COMPOSE = CHOICES_COMPOSE.replace(
+    "    search:\n      label: Search\n",
+    "    search:\n      label: Search\n      runtimes: [podman]\n", 1)
+
+
+class TestChoiceRuntimes(unittest.TestCase):
+    def _load(self, t: Path):
+        (t / "compose.yaml").write_text(RUNTIME_COMPOSE)
+        (t / "example.env").write_text(CHOICES_ENV)
+        (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+        return dbuild_config.load(t)
+
+    def test_parsed_and_linted(self):
+        import yaml as _yaml
+
+        from dbuild import choices as choices_mod
+        data = _yaml.safe_load(RUNTIME_COMPOSE)
+        cs = {c.id: c for c in choices_mod.parse(data["x-daemonless"], data)}
+        self.assertTrue(cs["search"].applies("podman"))
+        self.assertFalse(cs["search"].applies("appjail"))
+        self.assertTrue(cs["database"].applies("appjail"), "no runtimes: every runtime")
+        self.assertEqual(choices_mod.validate(list(cs.values()), data), [])
+        data["x-daemonless"]["choices"]["search"]["runtimes"] = ["docker"]
+        errs = choices_mod.validate(choices_mod.parse(data["x-daemonless"], data), data)
+        self.assertTrue(any("runtimes: 'docker' is not a runtime" in e for e in errs), errs)
+
+    def test_catalog_carries_runtimes_only_when_set(self):
+        from dbuild import choices as choices_mod
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            with _chdir(t):
+                cfg = self._load(t)
+                out = {c["id"]: c for c in choices_mod.to_fjord(cfg.metadata.choices, cfg.compose_text, cfg.compose_data)["choices"]}
+        self.assertEqual(out["search"]["runtimes"], ["podman"])
+        self.assertNotIn("runtimes", out["database"])
+
+    def test_appjail_lists_only_combinations_at_the_hidden_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            with _chdir(t):
+                cfg = self._load(t)
+                ctx = docs._enrich_metadata(cfg, None)
+                site = docs._get_jinja_env(t).get_template("README.mkdocs.j2").render(dict(ctx, render_mode="mkdocs"))
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), t)
+        self.assertEqual(errors, [])
+        on = _combo(ctx, search="on")
+        self.assertEqual(on["runtimes"], ["podman"])
+        self.assertEqual(_combo(ctx, database="postgres")["runtimes"], ["podman", "appjail"])
+        self.assertEqual(_combo(ctx, database="postgres")["labels"]["appjail"], "PostgreSQL")
+        podman, appjail = site.split(':appjail-appjail: AppJail', 1)
+        self.assertIn('data-choice="search"', podman)
+        self.assertIn('data-key="database=sqlite;search=on"', podman)
+        self.assertNotIn('data-choice="search"', appjail, "no row for a podman-only choice")
+        self.assertNotIn("search=", appjail, "keys built from the form's own rows")
+        self.assertIn('data-key="database=postgres"', appjail)
+        readme_aj = outputs["README.md"].split("### AppJail Director", 1)[1]
+        self.assertIn("#### PostgreSQL\n", readme_aj)
+        self.assertNotIn(", On", readme_aj)
+        self.assertNotIn(", Off", readme_aj)
+        self.assertIn("#### SQLite, On\n", outputs["README.md"].split("### AppJail Director", 1)[0])
+
+    def test_a_form_with_no_choices_for_the_runtime_is_just_the_files(self):
+        compose = RUNTIME_COMPOSE.replace("      kind: database\n", "      kind: database\n      runtimes: [podman]\n", 1)
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(compose)
+            (t / "example.env").write_text(CHOICES_ENV)
+            (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                site = docs._get_jinja_env(t).get_template("README.mkdocs.j2").render(dict(docs._enrich_metadata(cfg), render_mode="mkdocs"))
+        appjail = site.split(':appjail-appjail: AppJail', 1)[1]
+        self.assertNotIn('class="deploy-choices"', appjail)
+        self.assertNotIn("deploy-combo", appjail)
+        self.assertIn("appjail-director.yml", appjail)
+
+
+    def test_an_appjail_only_choice_leaves_podman_alone(self):
+        compose = CHOICES_COMPOSE.replace("    search:\n      label: Search\n",
+                                          "    search:\n      label: Search\n      runtimes: [appjail]\n", 1)
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(compose)
+            (t / "example.env").write_text(CHOICES_ENV)
+            (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                site = docs._get_jinja_env(t).get_template("README.mkdocs.j2").render(dict(docs._enrich_metadata(cfg), render_mode="mkdocs"))
+                outputs, _ = docs.render_generated(cfg, argparse.Namespace(community=None), t)
+        podman, appjail = site.split(':appjail-appjail: AppJail', 1)
+        self.assertNotIn('data-choice="search"', podman)
+        self.assertNotIn("search=", podman)
+        self.assertIn('data-choice="search"', appjail)
+        readme_pm = outputs["README.md"].split("### Podman Compose", 1)[1].split("### AppJail Director", 1)[0]
+        self.assertNotIn("**Search.**", readme_pm)
+        self.assertIn("#### PostgreSQL\n", readme_pm)
+        self.assertNotIn("compose.database-sqlite.search-on.yaml", site)
+
+    def test_the_merged_form_leaves_out_the_hidden_choice(self):
+        compose = _toggles_compose(6).replace("      label: App0\n", "      label: App0\n      runtimes: [podman]\n", 1)
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d)
+            (t / "compose.yaml").write_text(compose)
+            (t / "example.env").write_text("TZ=UTC\n")
+            (t / "Containerfile.j2").write_text(CONTAINERFILE_J2)
+            with _chdir(t):
+                cfg = dbuild_config.load(t)
+                ctx = docs._enrich_metadata(cfg, None)
+                site = docs._get_jinja_env(t).get_template("README.mkdocs.j2").render(dict(ctx, render_mode="mkdocs"))
+        self.assertEqual(ctx["choices_mode"], "merged")
+        podman, appjail = site.split(':appjail-appjail: AppJail', 1)
+        self.assertEqual(podman.count('class="deploy-merged"'), 1)
+        self.assertEqual(appjail.count('class="deploy-merged"'), 1)
+        self.assertIn('data-choice="app0"', podman)
+        self.assertNotIn('data-choice="app0"', appjail)
+        self.assertNotIn('app0', appjail.split('class="deploy-merged"', 1)[1].split("data-when=", 1)[1].split('"', 2)[1],
+                         "the merge's conditions name only the form's own choices")
+        for key in (m.split('"')[0] for m in appjail.split('data-key="')[1:]):
+            self.assertNotIn("app0=", key)
