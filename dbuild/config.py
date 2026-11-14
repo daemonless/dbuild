@@ -34,6 +34,31 @@ _IGNORE_SUFFIXES: set[str] = {".j2", ".bak", ".orig", ".swp", ".tmp", ".linux"}
 _GLOBAL_CONFIG_PATH: Path | None = None
 
 
+
+def _split_compose(entry: str) -> list[str]:
+    """Split a short-form compose volume or port on ``:``, but not inside
+    ``${...}``: ``${DIR:-/srv/x}:/x:ro`` is source ``${DIR:-/srv/x}``,
+    target ``/x``, options ``ro``."""
+    parts, cur, depth = [], "", 0
+    i = 0
+    while i < len(entry):
+        if entry.startswith("${", i):
+            depth += 1
+            cur += "${"
+            i += 2
+            continue
+        c = entry[i]
+        if c == "}" and depth:
+            depth -= 1
+        if c == ":" and not depth:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += c
+        i += 1
+    parts.append(cur)
+    return parts
+
 def _confident_prefix() -> Path | None:
     """Return the install prefix only when it can be determined reliably.
 
@@ -636,7 +661,7 @@ def _parse_service_data(
         # Volumes
         for v in service.get("volumes", []):
             if isinstance(v, str):
-                parts = v.split(":")
+                parts = _split_compose(v)
                 src = parts[0]
                 tgt = parts[1] if len(parts) > 1 else parts[0]
                 opts = parts[2] if len(parts) > 2 else ""
@@ -649,7 +674,7 @@ def _parse_service_data(
         # Ports
         for p in service.get("ports", []):
             if isinstance(p, str):
-                parts = p.split(":")
+                parts = _split_compose(p)
                 pub = parts[0]
                 tgt = parts[1] if len(parts) > 1 else parts[0]
                 proto = "tcp"
