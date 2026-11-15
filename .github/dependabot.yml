@@ -1,9 +1,8 @@
 # Keeps GitHub Actions pinned versions current.
 #
-# Only repos with their own workflow steps need this. The ~95 image repos call
-# daemonless/dbuild/.github/workflows/daemonless-build.yaml@main, which is a
-# branch ref -- there is no version for dependabot to bump, and the actions they
-# actually run live in dbuild's reusable workflow instead.
+# Only repos with their own workflow steps need this. The image repos call
+# daemonless/workflows/.github/workflows/daemonless-build.yaml@v1, and the
+# actions they actually run are pinned there, not here.
 version: 2
 
 updates:
