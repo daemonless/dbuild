@@ -30,7 +30,7 @@ name: {name}
 x-daemonless:
   title: "TestApp"
   description: "A test app."
-  category: "Utilities"
+  category: "Productivity & Docs"
   icon: ":test:"
   upstream_url: "https://example.com"
   user: "bsd"
@@ -508,30 +508,25 @@ if __name__ == "__main__":
 
 
 class TestSitePlaceholders:
-    def test_repo_compose_and_env_get_site_placeholders(self):
+    def test_repo_compose_and_env_keep_clean_static_defaults(self):
         from dbuild.docs import _site_placeholders
         compose = "      - PUID=1000\n      - PGID=1000\n    volumes:\n      - /containers/app/config:/config\n"
-        assert _site_placeholders(compose) == (
-            "      - PUID=@PUID@\n      - PGID=@PGID@\n    volumes:\n"
-            '      - "@CONTAINER_CONFIG_ROOT@/app/config:/config"\n')
+        assert _site_placeholders(compose) == compose
         env = "CONFIG_LOCATION=/containers/app\n# TZ=UTC\n"
-        assert _site_placeholders(env, env_file=True) == (
-            "CONFIG_LOCATION=@CONTAINER_CONFIG_ROOT@/app\nTZ=@TZ@\n")
+        assert _site_placeholders(env, env_file=True) == env
         assert _site_placeholders("") == ""
 
-    def test_the_whole_fleet_root_becomes_the_placeholder(self):
-        # 122 composes write /path/to/containers/<app>: only /containers was
-        # swapped, so the page showed /path/to@CONTAINER_CONFIG_ROOT@/<app>.
+    def test_the_whole_fleet_root_normalizes_to_containers(self):
+        # 122 composes write /path/to/containers/<app>: normalize cleanly to /containers/<app>.
         from dbuild.docs import _site_placeholders
         compose = "      - /path/to/containers/uptime-kuma:/config\n"
-        # quoted: a YAML value starting with @ is split by the highlighter
-        assert _site_placeholders(compose) == '      - "@CONTAINER_CONFIG_ROOT@/uptime-kuma:/config"\n'
+        assert _site_placeholders(compose) == "      - /containers/uptime-kuma:/config\n"
         long_form = "        source: /path/to/containers/app/db\n"
-        assert _site_placeholders(long_form) == '        source: "@CONTAINER_CONFIG_ROOT@/app/db"\n'
+        assert _site_placeholders(long_form) == "        source: /containers/app/db\n"
         commented = "      - /path/to/containers/x:/data  # required\n"
-        assert _site_placeholders(commented) == '      - "@CONTAINER_CONFIG_ROOT@/x:/data"  # required\n'
+        assert _site_placeholders(commented) == "      - /containers/x:/data  # required\n"
         env = "DB_LOCATION=/path/to/containers/app/db\n"
-        assert _site_placeholders(env, env_file=True) == "DB_LOCATION=@CONTAINER_CONFIG_ROOT@/app/db\n"
+        assert _site_placeholders(env, env_file=True) == "DB_LOCATION=/containers/app/db\n"
         assert _site_placeholders("      - /srv/containers/x:/x\n") == "      - /srv/containers/x:/x\n", "only at a path's start"
 
 
@@ -542,7 +537,7 @@ name: todo
 x-daemonless:
   title: "Todo"
   description: "A to-do app."
-  category: "Utilities"
+  category: "Productivity & Docs"
   icon: ":test:"
   upstream_url: "https://example.com"
   user: "bsd"
@@ -655,7 +650,7 @@ class TestStackChoices(unittest.TestCase):
         self.assertEqual([(p["name"], p["kind"]) for p in pg["parts"]], [("todo", "app"), ("postgres", "db")])
         self.assertEqual(pg["parts"][1]["image"], "postgres:17")
         self.assertTrue(pg["jails"][1]["name"].endswith("_postgres"), pg["jails"])  # <image>_postgres
-        self.assertIn("@CONTAINER_CONFIG_ROOT@/todo/postgres", pg["folders"])
+        self.assertIn("/containers/todo/postgres", pg["folders"])
         ext = _combo(ctx, database="external")
         self.assertEqual(ext["parts"][-1]["kind"], "none")
         both = _combo(ctx, database="postgres", search="on")
@@ -909,7 +904,7 @@ class TestStackWithAuthoredDirector(unittest.TestCase):
         on = ctx["combos"][0]
         self.assertTrue(on["default"])
         self.assertEqual(on["parts"][0]["image"], "photos-server:latest", "the compose fallback resolves")
-        self.assertEqual(on["folders"], ["@CONTAINER_CONFIG_ROOT@/photos/library", "@CONTAINER_CONFIG_ROOT@/photos/cache"])
+        self.assertEqual(on["folders"], ["/containers/photos/library", "/containers/photos/cache"])
 
     def test_bundle_on_disk_is_the_default_answer(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1138,8 +1133,20 @@ class TestChoiceCap(unittest.TestCase):
         self.assertEqual(page.count('class="toggle"'), 20, "ten switches per runtime")
         self.assertLess(len(page), 120_000)
 
+    def test_sixteen_toggle_suite_merges_in_linear_samples(self):
+        import jinja2
+
+        ctx, _, errors = self._ctx(16)
+        self.assertEqual(errors, [])
+        self.assertEqual(ctx["choices_mode"], "merged")
+        self.assertLess(len(ctx["all_combos"]()), 40, "O(N) sample instead of 2^16 = 65536")
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(Path(docs.__file__).parent / "templates")))
+        page = env.get_template("README.mkdocs.j2").render(dict(ctx, render_mode="mkdocs"))
+        self.assertEqual(page.count('class="deploy-merged"'), 2, "one per runtime")
+        self.assertEqual(page.count('class="toggle"'), 32, "sixteen switches per runtime")
+
     def test_past_the_merge_limit_defaults_only(self):
-        ctx, _, errors = self._ctx(13)
+        ctx, _, errors = self._ctx(65)
         self.assertEqual(errors, [])
         self.assertEqual(ctx["choices_mode"], "capped")
         self.assertEqual(len(ctx["combos"]), 1)
@@ -1349,3 +1356,98 @@ class TestChoiceRuntimes(unittest.TestCase):
                          "the merge's conditions name only the form's own choices")
         for key in (m.split('"')[0] for m in appjail.split('data-key="')[1:]):
             self.assertNotIn("app0=", key)
+
+
+class TestOperatorFirstAndFjordTab(unittest.TestCase):
+    """Operator-First layout, fjord default tab, repo_dir isolation, and zero @PLACEHOLDER@ tokens."""
+
+    def test_operator_first_order_and_fjord_default_tab(self):
+        import re as _re
+
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "radarr"
+            (repo / ".daemonless" / "screenshots").mkdir(parents=True)
+            (repo / ".daemonless" / "screenshots" / "ui.png").write_bytes(b"png")
+            (repo / "Containerfile.j2").write_text("ARG BASE_VERSION=15.1-latest\n" + CONTAINERFILE_J2)
+            (repo / ".daemonless" / "config.yaml").write_text(
+                "build:\n  variants:\n    - tag: latest\n      default: true\n"
+            )
+            (repo / "compose.yaml").write_text(
+                "name: radarr\n"
+                "x-daemonless:\n"
+                '  title: "Radarr"\n'
+                '  description: "Movie manager."\n'
+                '  category: "Media Automation"\n'
+                '  icon: ":material-movie:"\n'
+                '  upstream_url: "https://github.com/Radarr/Radarr"\n'
+                '  user: "bsd"\n'
+                "  appjail: {}\n"
+                "services:\n"
+                "  radarr:\n"
+                "    image: ghcr.io/daemonless/radarr:latest\n"
+                "    environment:\n"
+                "      - PUID=1000\n"
+                "      - TZ=UTC\n"
+                "    volumes:\n"
+                "      - /path/to/containers/radarr:/config\n"
+                "    ports:\n"
+                '      - "7878:7878"\n'
+            )
+            # Call _enrich_metadata from a DIFFERENT working directory via repo_dir!
+            with tempfile.TemporaryDirectory() as outside, _chdir(Path(outside)):
+                cfg = dbuild_config.load(repo)
+                ctx = docs._enrich_metadata(cfg, repo_dir=repo)
+                site = docs._get_jinja_env(repo).get_template("README.mkdocs.j2").render(
+                    dict(ctx, render_mode="mkdocs")
+                )
+            with _chdir(repo):
+                outputs, errors = docs.render_generated(cfg, argparse.Namespace(community=None), repo)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(ctx["fjord_supported"])
+        self.assertEqual(ctx["base_version"], "15.1")
+        self.assertEqual(ctx["screenshots"], [".daemonless/screenshots/ui.png"])
+
+        # Zero @PLACEHOLDER@ tokens on site output
+        self.assertEqual(_re.findall(r"@[A-Z][A-Z0-9_]+@", site), [])
+        self.assertIn('class="screenshot-strip"', site)
+        self.assertIn('class="deploy-customizer"', site)
+        self.assertIn("## Deployment { #deployment data-search-exclude }", site)
+        self.assertIn("## Version Tags { #version-tags data-search-exclude }", site)
+
+        # fjord tab is first tab before Podman
+        self.assertLess(site.index('=== ":fjord-fjord: fjord"'), site.index('=== ":podman-podman: Podman"'))
+        self.assertIn("fjord install radarr", site)
+
+        # Operator-First section order on both site and GitHub README
+        self.assertLess(site.index("## Deployment"), site.index("## Parameters"))
+        self.assertLess(site.index("## Parameters"), site.index("## Version Tags"))
+        readme = outputs["README.md"]
+        self.assertLess(readme.index("## Deployment"), readme.index("## Parameters"))
+        self.assertLess(readme.index("## Parameters"), readme.index("## Version Tags"))
+        self.assertLess(readme.index("### Fjord"), readme.index("### Podman Compose"))
+
+    def test_fjord_exclude_suppresses_fjord_tab(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "sylve"
+            (repo / ".daemonless").mkdir(parents=True)
+            (repo / ".daemonless" / "config.yaml").write_text("fjord:\n  exclude: true\n")
+            (repo / "compose.yaml").write_text(
+                "name: sylve\n"
+                "x-daemonless:\n"
+                '  title: "Sylve"\n'
+                '  description: "Hypervisor."\n'
+                '  category: "Productivity & Docs"\n'
+                '  upstream_url: "https://example.com"\n'
+                '  user: "root"\n'
+                "services:\n"
+                "  sylve:\n"
+                "    image: ghcr.io/daemonless/sylve:latest\n"
+            )
+            cfg = dbuild_config.load(repo)
+            ctx = docs._enrich_metadata(cfg, repo_dir=repo)
+            site = docs._get_jinja_env(repo).get_template("README.mkdocs.j2").render(
+                dict(ctx, render_mode="mkdocs")
+            )
+        self.assertFalse(ctx["fjord_supported"])
+        self.assertNotIn(":fjord-fjord:", site)

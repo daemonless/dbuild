@@ -44,28 +44,26 @@ _MSG_PORT_RE = re.compile(r"(?<![\w.])(?:https?://)?[\w.\[\]<>-]+:(\d{2,5})(?![\
 # best-effort.  Unmapped categories fall back to None (triggers a warning).
 _CATEGORY_MAP: dict[str, str] = {
     "databases":    "Databases",
-    "devel":        "Development",
-    "lang":         "Development",
-    "editors":      "Development",
-    "dns":          "Network",
-    "ftp":          "Downloaders",
-    "net":          "Network",
-    "net-im":       "Network",
+    "devel":        "DevOps",
+    "lang":         "DevOps",
+    "editors":      "DevOps",
+    "dns":          "Networking",
+    "ftp":          "Storage & Backup",
+    "net":          "Networking",
+    "net-im":       "Automation & Comms",
     "net-mgmt":     "Monitoring",
-    "net-p2p":      "Downloaders",
-    "net-vpn":      "Network",
+    "net-p2p":      "Media Automation",
+    "net-vpn":      "Networking",
     "security":     "Security",
-    "sysutils":     "Utilities",
-    "multimedia":   "Media Servers",
-    "graphics":     "Photos & Media",
-    "audio":        "Media Servers",
-    "www":          "Network",
-    "finance":      "Productivity",
-    "misc":         "Utilities",
-    "ports-mgmt":   "Utilities",
-    "shells":       "Utilities",
-    "textproc":     "Utilities",
-    "archivers":    "Utilities",
+    "sysutils":     "DevOps",
+    "multimedia":   "Media & Photos",
+    "graphics":     "Media & Photos",
+    "audio":        "Media & Photos",
+    "www":          "Networking",
+    "finance":      "Productivity & Docs",
+    "deskutils":    "Productivity & Docs",
+    "mail":         "Automation & Comms",
+    "archivers":    "Storage & Backup",
 }
 
 
@@ -826,13 +824,14 @@ def _port_summary(meta: dict[str, object], title: str, port: int, port_from_arg:
 
     if meta["category"]:
         log.success(f"category:    {meta['category']}  (port: {meta['category_raw']})")
-        if meta["category_raw"] == "www" and not category_from_arg:
+        if meta["category_raw"] in ("www", "sysutils") and not category_from_arg:
             review.append(
-                "category: www/ ports land in Network; a git forge is Infrastructure, "
-                "a wiki or notes app Productivity (compose.yaml, or --category)"
+                f"category: {meta['category_raw']}/ ports land in {meta['category']}; "
+                "a git forge is DevOps, a wiki or notes app Productivity & Docs "
+                "(compose.yaml, or --category)"
             )
     else:
-        log.warn(f"category:    Utilities  (no mapping for '{meta['category_raw']}')")
+        log.warn(f"category:    DevOps  (no mapping for '{meta['category_raw']}')")
         review.append("category in compose.yaml (--category next time)")
 
     if meta["binary"]:
@@ -925,10 +924,10 @@ def run(args: argparse.Namespace) -> int:
     app_name = args.name or port_meta.get("name") or Path.cwd().name
     # node_exporter -> Node Exporter; a brand's own casing is a --title job
     title = args.title or " ".join(w.capitalize() for w in app_name.split("_"))
-    category_from_arg = args.category != "Apps"
+    category_from_arg = bool(args.category and args.category != "Apps")
     category = (
         args.category if category_from_arg
-        else (port_meta.get("category") or "Utilities")
+        else (port_meta.get("category") or "DevOps")
     )
     port_arg = getattr(args, "port", None)
     port = int(port_arg) if port_arg else (int(port_meta.get("port") or 0) or _DEFAULT_PORT)
@@ -964,7 +963,7 @@ def run(args: argparse.Namespace) -> int:
         "port":           port,
         "mlock":          mlock,
         "mlock_bool":     mlock,
-        "description":    port_meta.get("description") or f"{title} on FreeBSD.",
+        "description":    port_meta.get("description") or f"{title} container image.",
         "web_url":        port_meta.get("web_url") or f"https://{app_name}.org/",
         "upstream_url":   port_meta.get("upstream_url") or port_meta.get("web_url") or f"https://github.com/daemonless/{app_name}",
         "repo_url":       f"https://github.com/daemonless/{app_name}",

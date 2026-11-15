@@ -115,19 +115,17 @@ VALID_IMAGE_CLASSES: list[str] = ["service", "cli", "base", "part"]
 VALID_TYPES: list[str] = ["app", "base", "stack", "appliance"]
 
 VALID_CATEGORIES: list[str] = [
+    "Automation & Comms",
     "Base",
     "Databases",
-    "Development",
-    "Downloaders",
-    "Infrastructure",
-    "Media Management",
-    "Media Servers",
+    "DevOps",
+    "Media & Photos",
+    "Media Automation",
     "Monitoring",
-    "Network",
-    "Photos & Media",
-    "Productivity",
+    "Networking",
+    "Productivity & Docs",
     "Security",
-    "Utilities",
+    "Storage & Backup",
 ]
 
 
@@ -358,11 +356,18 @@ class Metadata:
     description: str = field(default="", metadata={
         "desc": "Short description of the application",
     })
-    category: str = field(default="Apps", metadata={
+    category: str = field(default="", metadata={
         "desc": (
             "Application category. Valid values: "
             + ", ".join(VALID_CATEGORIES)
         ),
+    })
+    part_of: str = field(default="", metadata={
+        "desc": "Parent stack or suite repository ID (e.g. `immich`, `crafting-apps`) for catalog folding.",
+    })
+    tags: list[str] = field(default_factory=list, metadata={
+        "desc": "Lowercase discovery tags (e.g. `[dns, adblock, doh]`).",
+        "display_default": "[]",
     })
     upstream_url: str = field(default="", metadata={
         "desc": "URL to the upstream source repository",
@@ -471,6 +476,7 @@ class Config:
     compose_text: str = ""
     example_env: str = ""
     compose_data: dict[str, Any] = field(default_factory=dict)
+    fjord_exclude: bool = False
 
     @property
     def full_image(self) -> str:
@@ -804,10 +810,15 @@ def _parse_metadata(data: dict[str, Any], app_name: str, base: Path | None = Non
                 logo_dark = f"{app_name}-dark{ext}"
                 break
 
+    raw_tags = meta.get("tags")
+    tags = [str(t).strip() for t in raw_tags if str(t).strip()] if isinstance(raw_tags, list) else []
+
     return Metadata(
         title=meta.get("title", app_name.title()),
         description=meta.get("description", ""),
-        category=meta.get("category", "Apps"),
+        category=meta.get("category", ""),
+        part_of=str(meta.get("part_of", "") or ""),
+        tags=tags,
         upstream_url=meta.get("upstream_url", ""),
         web_url=meta.get("web_url", ""),
         freshports_url=meta.get("freshports_url", ""),
@@ -1042,6 +1053,9 @@ def load(base: Path | None = None) -> Config:
         if example_env_path.is_file():
             example_env = example_env_path.read_text()
 
+    fjord_cfg = local_data.get("fjord")
+    fjord_exclude = bool(fjord_cfg.get("exclude")) if isinstance(fjord_cfg, dict) else False
+
     return Config(
         image=image_name,
         registry=registry,
@@ -1056,6 +1070,7 @@ def load(base: Path | None = None) -> Config:
         compose_text=compose_text,
         example_env=example_env,
         compose_data=compose_data if isinstance(compose_data, dict) else {},
+        fjord_exclude=fjord_exclude,
     )
 
 

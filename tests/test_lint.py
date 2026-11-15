@@ -312,7 +312,7 @@ class TestStackRepoLint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)
             (p / "compose.yaml").write_text(
-                "name: photos\nx-daemonless:\n  title: Photos\n  icon: ':x:'\n  category: Photos & Media\n"
+                "name: photos\nx-daemonless:\n  title: Photos\n  icon: ':x:'\n  category: Media & Photos\n"
                 "  description: d\n  upstream_url: https://example.com\n  type: stack\n"
                 "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n")
             errors, _ = lint_repo(p)
@@ -332,7 +332,7 @@ class TestContainerfileBloatLint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)
             (p / "compose.yaml").write_text(
-                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Productivity & Docs\n"
                 "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
                 "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
             )
@@ -356,7 +356,7 @@ class TestContainerfileBloatLint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)
             (p / "compose.yaml").write_text(
-                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Productivity & Docs\n"
                 "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
                 "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
             )
@@ -382,7 +382,7 @@ class TestContainerfileBloatLint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)
             (p / "compose.yaml").write_text(
-                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Productivity & Docs\n"
                 "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
                 "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
             )
@@ -406,7 +406,7 @@ class TestCliLint(unittest.TestCase):
             p = Path(d)
             (p / "Containerfile").write_text("FROM scratch\n")
             (p / "compose.yaml").write_text(
-                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Utilities\n"
+                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Productivity & Docs\n"
                 "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
                 + cli_yaml + "services:\n  chat:\n    image: ghcr.io/daemonless/chat:latest\n")
             errors, _ = lint_repo(p)
@@ -429,7 +429,7 @@ class TestCliLint(unittest.TestCase):
             p = Path(d)
             (p / "Containerfile.j2").write_text(cf)
             (p / "compose.yaml").write_text(
-                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Utilities\n"
+                "name: chat\nx-daemonless:\n  title: Chat\n  icon: ':x:'\n  category: Productivity & Docs\n"
                 "  description: d\n  upstream_url: https://example.com\n  user: bsd\n  cli: [chat]\n"
                 "services:\n  chat:\n    image: ghcr.io/daemonless/chat:latest\n")
             errors, _ = lint_repo(p)
@@ -437,3 +437,53 @@ class TestCliLint(unittest.TestCase):
             (p / "Containerfile.j2").write_text(cf.replace("/opt/venv/bin:", "/usr/local/daemonless/bin:/opt/venv/bin:"))
             errors, _ = lint_repo(p)
             self.assertFalse([e for e in errors if "sets PATH" in e], errors)
+
+
+class TestTaxonomyAndMetadataLint(unittest.TestCase):
+    """Tests for canonical 10-category taxonomy, Base/class parity, Containerfile label parity, and screenshot bloat."""
+
+    def test_utilities_category_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "Containerfile").write_text("FROM scratch\n")
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Utilities\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            errors, _ = lint_repo(p)
+        self.assertTrue(any("Invalid category 'Utilities'" in e for e in errors), errors)
+
+    def test_base_category_and_class_parity(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "Containerfile").write_text("FROM scratch\n")
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Base\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            errors, _ = lint_repo(p)
+        self.assertTrue(any("Category 'Base' is reserved" in e for e in errors), errors)
+
+    def test_containerfile_category_mismatch_and_oversized_screenshot(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "Containerfile").write_text(
+                'FROM scratch\nLABEL io.daemonless.category="Utilities"\n'
+            )
+            (p / ".daemonless" / "screenshots").mkdir(parents=True)
+            (p / ".daemonless" / "screenshots" / "huge.png").write_bytes(b"0" * (1600 * 1024))
+            (p / "compose.yaml").write_text(
+                "name: app\nx-daemonless:\n  title: App\n  icon: ':x:'\n  category: Networking\n"
+                "  description: d\n  upstream_url: https://example.com\n  user: bsd\n"
+                "  part_of: Bad_Slug\n"
+                "services:\n  app:\n    image: ghcr.io/daemonless/app:latest\n"
+            )
+            errors, warnings = lint_repo(p)
+        self.assertTrue(any("io.daemonless.category" in e for e in errors), errors)
+        self.assertTrue(any("part_of" in e for e in errors), errors)
+        self.assertTrue(any("huge.png" in w for w in warnings), warnings)

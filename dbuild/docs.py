@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .config import _confident_prefix
+from .config import _confident_prefix, _split_compose
 
 try:
     import jinja2
@@ -302,34 +302,27 @@ def _normalize_base_version(raw: str, default: str = "15.1") -> str:
 
 
 def _site_placeholders(text: str, env_file: bool = False) -> str:
-    """Put the docs site's placeholders into a repo's own compose or .env.
+    """Normalize sample config roots (/path/to/containers -> /containers) for site snippets.
 
-    /containers -> @CONTAINER_CONFIG_ROOT@, PUID/PGID=1000 -> @PUID@/@PGID@,
-    and in a .env the TZ line -> TZ=@TZ@, so the settings panel fills them
-    in as it does on a one-service page.
+    Site snippets render clean static defaults (/containers, PUID=1000, TZ=UTC)
+    so pages work natively with Zensical instant navigation without post-build
+    @PLACEHOLDER@ HTML mutation; the client-side customizer rewrites them live.
     """
+    _ = env_file
     if not text:
         return ""
-    text = re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, text)
-    text = re.sub(r"(?m)(\bPUID=)1000\b", r"\g<1>@PUID@", text)
-    text = re.sub(r"(?m)(\bPGID=)1000\b", r"\g<1>@PGID@", text)
-    if env_file:
-        text = re.sub(r"(?m)^#?\s*TZ=\S*$", "TZ=@TZ@", text)
-    else:
-        # A YAML value can't start with @: the highlighter splits it, and the
-        # site's settings panel never finds the placeholder. Quoted, it's one
-        # string (the README template quotes its volume lines for this).
-        text = re.sub(r"""(?m)^(\s*(?:-\s+|[\w.-]+:\s+))(@[A-Z_]+@[^\s#"']*)(?=[ \t]*(?:#.*)?$)""", r'\1"\2"', text)
-    return text
+    return re.sub(CONFIG_ROOT_RE, "/containers", text)
 
 
 # Each combination listed is a full set of files on the page, so they
-# multiply: crafting-apps' ten on/off choices made 2048, a 42 MB page that
-# crashed browsers. Up to MAX_COMBOS they are listed; past it the site merges
-# them into one block (choice_merge) and the GitHub README shows the defaults.
-# Past MAX_MERGED even the merge's proof is too much work: defaults only.
+# multiply: crafting-apps' sixteen on/off choices make 65536. Up to MAX_COMBOS
+# they are listed; past it the site merges them into one block (choice_merge)
+# and the GitHub README shows the defaults. Pure on/off toggle suites sample
+# O(N) combinations (default, single-off, adjacent-pair-off, all-off) so even
+# large suites merge in milliseconds; general choice matrices cap past MAX_MERGED.
 MAX_COMBOS = 16
 MAX_MERGED = 4096
+MAX_TOGGLE_SUITE = 64
 
 
 # GitHub's alert blockquote (> [!WARNING]) -> the site's admonition. The site
@@ -359,18 +352,28 @@ def _combination_count(cfg: Config, runtime: str = "") -> int:
     return math.prod(len(c.options) for c in cs) if cs else 0
 
 
+def _is_pure_toggle_suite(cs: list[Any]) -> bool:
+    """Every choice is an independent on/off service toggle (e.g. crafting-apps)."""
+    return bool(cs) and len(cs) <= MAX_TOGGLE_SUITE and all(_toggle(c) is not None for c in cs)
+
+
 def _choices_mode(cfg: Config) -> str:
     """"list" every combination, "merged" one block on the site, "capped"
     the defaults only. "" without choices."""
     count = _combination_count(cfg)
     if not count:
         return ""
-    return "list" if count <= MAX_COMBOS else "merged" if count <= MAX_MERGED else "capped"
+    if count <= MAX_COMBOS:
+        return "list"
+    if count <= MAX_MERGED or _is_pure_toggle_suite(cfg.metadata.choices):
+        return "merged"
+    return "capped"
 
 
 def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
     """Every way of answering the choices: one option per choice, every
-    combination, the all-default one first. Only the default past MAX_MERGED."""
+    combination, the all-default one first. Past MAX_MERGED, pure toggle suites
+    sample O(N) combinations; general matrices return only the default."""
     import itertools
 
     cs = cfg.metadata.choices
@@ -378,6 +381,30 @@ def _combinations(cfg: Config) -> list[list[tuple[Any, Any]]]:
         return []
     ordered = [sorted(c.options, key=lambda o: o.id != c.default) for c in cs]
     if _combination_count(cfg) > MAX_MERGED:
+        if _is_pure_toggle_suite(cs):
+            n = len(cs)
+            seen_keys: set[tuple[str, ...]] = set()
+            sample: list[list[tuple[Any, Any]]] = []
+
+            def _add(picks: list[tuple[Any, Any]]) -> None:
+                key = tuple(o.id for _, o in picks)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    sample.append(picks)
+
+            # 1. All-default (all services enabled)
+            _add([(c, ordered[i][0]) for i, c in enumerate(cs)])
+            # 2. Each single toggle off (tags every service's lines)
+            for k in range(n):
+                _add([(c, ordered[i][1 if i == k else 0]) for i, c in enumerate(cs)])
+            # 3. Adjacent pairs off (proves blank-line separators between neighbors)
+            for k in range(n - 1):
+                _add([(c, ordered[i][1 if i in (k, k + 1) else 0]) for i, c in enumerate(cs)])
+            # 4. All-off (and per-runtime all-off when toggles restrict runtimes)
+            _add([(c, ordered[i][1]) for i, c in enumerate(cs)])
+            for rt in choices_mod.RUNTIMES:
+                _add([(c, ordered[i][1 if c.applies(rt) else 0]) for i, c in enumerate(cs)])
+            return sample
         return [[(c, o[0]) for c, o in zip(cs, ordered, strict=True)]]
     return [list(zip(cs, picks, strict=True)) for picks in itertools.product(*ordered)]
 
@@ -448,22 +475,23 @@ def _director_for_option(director: dict, cfg: Config, option) -> dict:
             if isinstance(v, dict):
                 used.update(v.keys())
             elif isinstance(v, str):
-                used.add(v.split(":")[0].strip())
+                used.add(_split_compose(v)[0].strip())
     if isinstance(director.get("volumes"), dict):
         out["volumes"] = {k: v for k, v in director["volumes"].items() if k in used}
     return out
 
 
-def _sidecar_templates(cfg: Config) -> list[dict[str, str]]:
+def _sidecar_templates(cfg: Config, repo_dir: Path | None = None) -> list[dict[str, str]]:
     """Jail templates the authored bundle ships beside director.yml
     (appjail.depends_on[].template), with their text, for the README."""
+    base_dir = repo_dir if repo_dir is not None else Path.cwd()
     aj = cfg.metadata.appjail if isinstance(cfg.metadata.appjail, dict) else {}
     out = []
     for dep in (aj or {}).get("depends_on") or []:
         tpl = dep.get("template") if isinstance(dep, dict) else None
         if not tpl:
             continue
-        path = Path.cwd() / tpl
+        path = base_dir / tpl
         if path.is_file():
             out.append({"file": tpl, "text": path.read_text().rstrip("\n")})
     return out
@@ -579,7 +607,7 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
             for svc in parsed.values():
                 for v in (svc or {}).get("volumes") or []:
                     if isinstance(v, str):
-                        bits = v.split(":")
+                        bits = _split_compose(v)
                         src, ro = resolve(bits[0]), len(bits) > 2 and "ro" in bits[2].split(",")
                     else:
                         src, ro = resolve(str((v or {}).get("source", ""))), bool((v or {}).get("read_only"))
@@ -592,7 +620,7 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
                     k, _, v = ln.partition("=")
                     if k.endswith("_LOCATION") and v and v not in folders:
                         folders.append(v)
-            folders = [_re.sub(CONFIG_ROOT_RE, CONFIG_ROOT_VAR, f) for f in folders]
+            folders = [_re.sub(CONFIG_ROOT_RE, "/containers", f) for f in folders]
             director_text = director_env_text = ""
             if authored is not None:
                 sliced = _director_for_option(authored, cfg, None if is_default else opts)
@@ -675,12 +703,17 @@ def _choice_context(cfg: Config, context_env: list[dict[str, Any]]) -> dict[str,
                 "exceptions": [{"key": ";".join(f"{c}={o}" for c, o in zip(choice_ids, k, strict=True)),
                                 "text": rendered[keys.index(k)]} for k in exceptions]}
 
-    return {"choices": declared, "combos": combos, "all_combos": all_combos, "tree": tree(0, ()), "mode": mode, "merge": merge,
+    return {"choices": declared, "combos": combos, "all_combos": all_combos, "tree": tree(0, ()) if mode == "list" else None, "mode": mode, "merge": merge,
             "capped": {r: _capped_note(cfg, r) for r in ("podman", "appjail")}}
 
 
-def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict[str, Any]:
+def _enrich_metadata(
+    cfg: Config,
+    community_override: str | None = None,
+    repo_dir: Path | None = None,
+) -> dict[str, Any]:
     """Build a context dict for templates with enriched env/vol/port data from Config."""
+    base_dir = Path(repo_dir) if repo_dir is not None else Path.cwd()
     meta = cfg.metadata
     docs = meta.docs if isinstance(meta.docs, dict) else {}
 
@@ -717,7 +750,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
 
     # Extract base version from Containerfile.j2 if present
     base_version = "15.1"  # fallback default
-    cf_path = Path.cwd() / "Containerfile.j2"
+    cf_path = base_dir / "Containerfile.j2"
     if cf_path.exists():
         match = re.search(r"ARG BASE_VERSION=(.*)", cf_path.read_text())
         if match:
@@ -727,15 +760,29 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     # fjord matches the two, and refused opencloud-radicale (service
     # "radicale") with "this stack has no service named radicale".
     app_service = cfg.image
-    compose_path = Path.cwd() / "compose.yaml"
+    compose_services: dict[str, Any] = {}
+    compose_path = base_dir / "compose.yaml"
     if compose_path.exists():
         import yaml  # lazy, as everywhere in this module
         try:
-            svcs = list(((yaml.safe_load(compose_path.read_text()) or {}).get("services") or {}).keys())
+            compose_services = ((yaml.safe_load(compose_path.read_text()) or {}).get("services") or {})
+            svcs = list(compose_services.keys())
         except yaml.YAMLError:
             svcs = []
         if len(svcs) == 1:
             app_service = str(svcs[0])
+
+    has_services = bool(compose_services or (cfg.compose_data or {}).get("services") or cfg.compose_text)
+    fjord_supported = bool(
+        not cfg.fjord_exclude
+        and meta.deprecated is None
+        and meta.title
+        and has_services
+        and (
+            cfg.type == "stack"
+            or (meta.image_class == "service" and (len(compose_services) <= 1 or bool(cfg.example_env)))
+        )
+    )
 
     context = {
         "name": cfg.image,
@@ -744,6 +791,9 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "title": meta.title,
         "description": meta.description,
         "category": meta.category,
+        "part_of": meta.part_of,
+        "image_tags": meta.tags,
+        "fjord_supported": fjord_supported,
         "upstream_url": meta.upstream_url,
         "web_url": meta.web_url,
         "freshports_url": meta.freshports_url,
@@ -794,7 +844,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
         "bastille_enabled": bastille_enabled,
         "docs": meta.docs,
         "deprecated": meta.deprecated,
-        "screenshots": _collect_screenshots(Path.cwd()),
+        "screenshots": _collect_screenshots(base_dir),
         "cit_mode": cfg.test.mode if cfg.test else "none",
         "image_class": meta.image_class,
         "compose_text": cfg.compose_text,
@@ -950,7 +1000,7 @@ def _enrich_metadata(cfg: Config, community_override: str | None = None) -> dict
     authored = _authored_director(cfg)
     context["director_override_text"] = _render_director_override(authored) if authored else ""
     context["director_override_env"] = _render_override_env(authored, context) if authored else ""
-    context["sidecar_templates"] = _sidecar_templates(cfg)
+    context["sidecar_templates"] = _sidecar_templates(cfg, base_dir)
     context["stack_parts"] = _stack_parts(cfg)
     context["is_stack"] = cfg.type == "stack"
     return context
@@ -1187,7 +1237,7 @@ def render_generated(
         return outputs, ["jinja2 is not installed"]
 
     community_override = getattr(args, "community", None)
-    context = _enrich_metadata(cfg, community_override)
+    context = _enrich_metadata(cfg, community_override, repo_dir=base)
 
     env = _get_jinja_env(base)
     if env is None:
