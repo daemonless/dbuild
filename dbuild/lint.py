@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from dbuild import choices as choices_mod
-from dbuild.config import VALID_CATEGORIES, VALID_TYPES, is_cli_name
+from dbuild.config import VALID_CATEGORIES, VALID_IMAGE_CLASSES, VALID_TYPES, is_cli_name
+
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_CF_CATEGORY_LABEL_RE = re.compile(r'io\.daemonless\.category="([^"{}$]+)"')
+_SCREENSHOT_MAX_BYTES = int(1.5 * 1024 * 1024)
 
 try:
     import yaml
@@ -177,13 +181,43 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
                 )
 
             if verbose:
-                print("  checking category")
+                print("  checking category & class")
             category = meta.get("category", "")
+            image_class = meta.get("class", "")
+            if image_class and image_class not in VALID_IMAGE_CLASSES:
+                errors.append(
+                    f"Invalid class '{image_class}'."
+                    f" Valid: {', '.join(VALID_IMAGE_CLASSES)}"
+                )
             if category and category not in VALID_CATEGORIES:
                 errors.append(
                     f"Invalid category '{category}'."
                     f" Valid: {', '.join(VALID_CATEGORIES)}"
                 )
+            elif category == "Base" and image_class != "base":
+                errors.append(
+                    "Category 'Base' is reserved for x-daemonless.class: base images"
+                )
+            elif image_class == "base" and category and category != "Base":
+                errors.append(
+                    f"x-daemonless.class: base must use category 'Base' (got '{category}')"
+                )
+
+            if "part_of" in meta:
+                part_of = meta.get("part_of")
+                if not isinstance(part_of, str) or not _SLUG_RE.match(part_of):
+                    errors.append(
+                        f"x-daemonless.part_of must be a lowercase repo slug (got {part_of!r})"
+                    )
+
+            if "tags" in meta:
+                tags = meta.get("tags")
+                if not isinstance(tags, list) or not all(
+                    isinstance(t, str) and _SLUG_RE.match(t) for t in tags
+                ):
+                    errors.append(
+                        "x-daemonless.tags must be a list of lowercase slug strings (e.g. [dns, adblock])"
+                    )
 
             if verbose:
                 print("  checking choices")
@@ -232,6 +266,13 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             if screenshots_dir.is_dir():
                 for screenshot_file in sorted(screenshots_dir.iterdir()):
                     if screenshot_file.is_file():
+                        size_bytes = screenshot_file.stat().st_size
+                        if size_bytes > _SCREENSHOT_MAX_BYTES:
+                            size_mb = size_bytes / (1024 * 1024)
+                            warnings.append(
+                                f".daemonless/screenshots/{screenshot_file.name}: "
+                                f"{size_mb:.1f} MB exceeds 1.5 MB — convert to WebP or compress"
+                            )
                         for msg in upstream_assets.screenshot_warnings(
                             str(screenshot_file), screenshot_file.suffix
                         ):
@@ -284,6 +325,28 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
         if not config:
             errors.append("Empty .daemonless/config.yaml")
             return errors, warnings
+
+        if not compose_path.exists():
+            cfg_meta = config.get("x-daemonless")
+            if isinstance(cfg_meta, dict):
+                cfg_cat = cfg_meta.get("category", "")
+                if not cfg_cat:
+                    errors.append("Missing required field: x-daemonless.category")
+                elif cfg_cat not in VALID_CATEGORIES:
+                    errors.append(
+                        f"Invalid category '{cfg_cat}'."
+                        f" Valid: {', '.join(VALID_CATEGORIES)}"
+                    )
+            else:
+                warnings.append(
+                    "Missing compose.yaml (add compose.yaml with x-daemonless metadata)"
+                )
+
+        effective_type = config.get("type") or meta.get("type", "")
+        if meta.get("class") == "base" and effective_type != "base":
+            errors.append(
+                "x-daemonless.class: base requires type: base (in compose.yaml or .daemonless/config.yaml)"
+            )
 
         archs = config.get("build", {}).get("architectures", [])
         if archs and not isinstance(archs, list):
@@ -438,8 +501,19 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
     if not has_containerfile and not is_stack_repo:
         errors.append("Missing Containerfile")
 
+    if (
+        compose_path.exists()
+        and not config_path.exists()
+        and meta.get("class") == "base"
+        and meta.get("type") != "base"
+    ):
+        errors.append(
+            "x-daemonless.class: base requires type: base (in compose.yaml or .daemonless/config.yaml)"
+        )
+
     if verbose:
         print("  checking for stale base images")
+    expected_category = meta.get("category", "")
     for cf_path in sorted(repo_path.glob("Containerfile*")):
         try:
             cf_text = cf_path.read_text()
@@ -447,6 +521,14 @@ def lint_repo(repo_path: Path, verbose: bool = False) -> tuple[list[str], list[s
             continue
         if "BASE_VERSION=15.0" in cf_text or "base:15.0" in cf_text:
             warnings.append(f"{cf_path.name} uses stale FreeBSD 15.0 baseline — update to 15.1")
+        if expected_category:
+            for m in _CF_CATEGORY_LABEL_RE.finditer(cf_text):
+                cf_cat = m.group(1).strip()
+                if cf_cat != expected_category:
+                    errors.append(
+                        f"{cf_path.name}: io.daemonless.category={cf_cat!r} does not match"
+                        f" x-daemonless.category={expected_category!r}"
+                    )
         warnings.extend(_lint_containerfile_bloat(cf_path, cf_text.splitlines()))
 
     if verbose:

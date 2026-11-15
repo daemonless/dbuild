@@ -1,15 +1,9 @@
 {#- ==================================================================
-    Logic — Resolve values based on render_mode (MkDocs vs GitHub)
+    Logic — Resolve default values
     ================================================================== #}
-{%- if render_mode == "mkdocs" %}
-  {%- set reg_var = "@REGISTRY@" %}
-  {%- set cfg_root = "@CONTAINER_CONFIG_ROOT@" %}
-  {%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
-{%- else %}
-  {%- set reg_var = registry %}
-  {%- set cfg_root = "/containers" %}
-  {%- set port_var = ports[0].port if ports else "" %}
-{%- endif -%}
+{%- set reg_var = registry -%}
+{%- set cfg_root = "/containers" -%}
+{%- set port_var = ports[0].port if ports else "" -%}
 
 {#- ==================================================================
     Macros — deployment snippets
@@ -17,9 +11,7 @@
 
 {%- macro vol_src(v) -%}
 {%- if v.root_var -%}
-{{ cfg_root }}/{{ v.placeholder if (render_mode == "mkdocs" and v.placeholder) else v.source }}
-{%- elif render_mode == "mkdocs" and v.placeholder -%}
-{{ v.placeholder }}
+{{ cfg_root }}/{{ v.source }}
 {%- elif v.source.startswith('/') -%}
 {{ v.source }}
 {%- else -%}
@@ -67,7 +59,7 @@ services:
 {%- if e.unset %}
       # - {{ e.name }}={{ "  # " ~ e.desc if e.desc else "" }}
 {%- else %}
-      - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}{{ "  # " ~ e.desc if e.desc else "" }}
+      - {{ e.name }}={{ e.default }}{{ "  # " ~ e.desc if e.desc else "" }}
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -239,7 +231,7 @@ podman run -d --name {{ name }} \
   --health-cmd {{ healthcheck }} \
 {%- endif %}
 {%- for e in env if not e.unset %}
-  -e {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }} \
+  -e {{ e.name }}={{ e.default }} \
 {%- endfor %}
 {%- for v in volumes %}
   -v {{ vol_src(v) }}:{{ vol_tgt(v) }}{{ " # optional" if v.optional else "" }} \
@@ -259,7 +251,7 @@ services:
 {%- if env %}
     environment:
 {%- for e in env if not e.unset %}
-      - {{ e.name }}={{ e.placeholder if (render_mode == "mkdocs" and e.placeholder) else e.default }}
+      - {{ e.name }}={{ e.default }}
 {%- endfor %}
 {%- endif %}
 {%- if volumes %}
@@ -385,65 +377,45 @@ Source: dbuild templates
 | **Website** | [{{ web_url }}]({{ web_url }}) |
 {%- endif %}
 {%- endblock %}
+{%- endblock %}
 
-{%- if variants or (readme and readme.version_tags) %}
+{%- block notes %}
+{%- if notes %}
 
-## Version Tags
-{%- endif %}
-
-{%- if readme and readme.version_tags %}
-{{ readme.version_tags }}
-{%- elif not variants %}
-{%- elif render_mode == "mkdocs" and 'aarch64' in (architectures | default(['amd64'])) %}
-
-=== "Shared (recommended)"
-
-    Multi-arch manifests — resolve automatically to the right image for your platform.
-
-    {{ version_tags_table() | indent(4) }}
-
-=== "amd64"
-
-    {{ version_tags_table('-amd64') | indent(4) }}
-
-=== "aarch64"
-
-    {{ version_tags_table('-aarch64') | indent(4) }}
-{%- else %}
-{{ version_tags_table() }}
+{{ notes | trim }}
 {%- endif %}
 {%- endblock %}
 
-{%- if stack_parts | length > 1 %}
-
-## Parts
-
-| Service | Image | Role | |
-|---|---|---|---|
-{%- for p in stack_parts %}
-| **{{ p.name }}** | `{{ p.image }}` | {{ p.desc }}{% if p.when %} ({{ p.when }}){% endif %} | {% if p.page %}[docs]({% if render_mode == "mkdocs" %}{{ p.page }}.md{% else %}https://github.com/daemonless/{{ p.page }}{% endif %}){% endif %} |
-{%- endfor %}
-{%- endif %}
-
 {%- block prerequisites -%}
-{%- if image_class == "service" %}
+{%- if is_stack or image_class == "service" %}
 
 ## Prerequisites
 
 {%- if readme and readme.prerequisites %}
-{{ readme.prerequisites }}
 
+{{ readme.prerequisites | trim }}
 {%- endif %}
+
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](https://daemonless.io/guides/quick-start) for host setup instructions.
 {%- endif %}
 {%- endblock %}
 {%- block deployment -%}
-{%- if image_class in ["service", "cli", "stack"] %}
+{%- if is_stack or image_class in ["service", "cli"] %}
 
-## Deployment
-
+{% block deployment_heading %}## Deployment{% endblock %}
+{%- block deployment_customizer %}{% endblock %}
 {%- block deployment_tabs -%}
-{%- if image_class in ["service", "stack"] %}
+{%- if fjord_supported %}
+
+### Fjord
+
+Install and manage **{{ title }}** on FreeBSD with [fjord](https://fjord.daemonless.io):
+
+```bash
+fjord install {{ name }}
+```
+{%- endif %}
+{%- if is_stack or image_class == "service" %}
 
 ### Podman Compose
 
@@ -506,7 +478,7 @@ Then run `podman-compose up -d`.
 
 Then run `podman-compose up -d`.
 {%- else %}
-{%- if env and image_class == "stack" %}
+{%- if env and is_stack %}
 **1.** Save as `.env`:
 
 ```env { data-zip-bundle="{{ name }}-podman" data-zip-filename=".env" }
@@ -518,10 +490,10 @@ Then run `podman-compose up -d`.
 **2.** Save as `compose.yaml`:
 {%- endif %}
 
-```yaml{% if env and image_class == "stack" %} { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }{% endif %}
+```yaml{% if env and is_stack %} { data-zip-bundle="{{ name }}-podman" data-zip-filename="compose.yaml" }{% endif %}
 {{ compose_snippet() }}
 ```
-{%- if image_class == "stack" %}
+{%- if is_stack %}
 
 Then run `podman-compose up -d`.
 {%- else %}
@@ -603,10 +575,21 @@ Save as `bastille-compose.yml`, then run `bastille up`.
 
 {#- Not localhost: a published port is a pf rdr, and pf never redirects the
     host's own connections to it. #}
-Open `http://<server>:{{ ports[0].port if render_mode != "mkdocs" else port_var }}` from another machine (the server's own browser can't use a published port).
+Open `http://<server>:{{ port_var }}` from another machine (the server's own browser can't use a published port).
 {%- endif %}
 {%- endif %}
 {%- endblock %}
+
+{%- if stack_parts | length > 1 %}
+
+## Parts
+
+| Service | Image | Role | |
+|---|---|---|---|
+{%- for p in stack_parts %}
+| **{{ p.name }}** | `{{ p.image }}` | {{ p.desc }}{% if p.when %} ({{ p.when }}){% endif %} | {% if p.page %}[docs]({% if render_mode == "mkdocs" %}{{ p.page }}.md{% else %}https://github.com/daemonless/{{ p.page }}{% endif %}){% endif %} |
+{%- endfor %}
+{%- endif %}
 
 {%- if readme and readme.setup %}
 
@@ -621,8 +604,6 @@ Open `http://<server>:{{ ports[0].port if render_mode != "mkdocs" else port_var 
 
 {{ readme.troubleshooting }}
 {%- endif %}
-
-{%- block interactive_config %}{%- endblock %}
 
 {%- block parameters -%}
 {%- if env or volumes or ports %}
@@ -664,11 +645,32 @@ Open `http://<server>:{{ ports[0].port if render_mode != "mkdocs" else port_var 
 {%- endif %}
 {%- endblock %}
 
-{%- block notes %}
-{%- if notes %}
+{%- block version_tags -%}
+{%- if variants or (readme and readme.version_tags) %}
 
-{{ notes }}
+{% block version_tags_heading %}## Version Tags{% endblock %}
 
+{%- if readme and readme.version_tags %}
+{{ readme.version_tags }}
+{%- elif not variants %}
+{%- elif render_mode == "mkdocs" and 'aarch64' in (architectures | default(['amd64'])) %}
+
+=== "Shared (recommended)"
+
+    Multi-arch manifests — resolve automatically to the right image for your platform.
+
+    {{ version_tags_table() | indent(4) }}
+
+=== "amd64"
+
+    {{ version_tags_table('-amd64') | indent(4) }}
+
+=== "aarch64"
+
+    {{ version_tags_table('-aarch64') | indent(4) }}
+{%- else %}
+{{ version_tags_table() }}
+{%- endif %}
 {%- endif %}
 {%- endblock %}
 

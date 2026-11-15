@@ -181,19 +181,13 @@ description: "{{ description }} Built natively for FreeBSD with PUID/PGID suppor
 
 {% block screenshots %}
 {% if screenshots %}
-<section class="splide screenshot-carousel" aria-label="{{ title }} screenshots">
-  <div class="splide__track">
-    <ul class="splide__list">
+<div class="screenshot-strip" aria-label="{{ title }} screenshots">
 {% for shot in screenshots %}
-      <li class="splide__slide">
-        <a href="{{ shot }}" class="glightbox" data-gallery="{{ name }}">
-          <img src="{{ shot }}" loading="lazy" alt="{{ title }} screenshot {{ loop.index }}">
-        </a>
-      </li>
+  <a href="{{ shot }}" class="glightbox screenshot-thumb" data-gallery="{{ name }}">
+    <img src="{{ shot }}" loading="lazy" alt="{{ title }} screenshot {{ loop.index }}">
+  </a>
 {% endfor %}
-    </ul>
-  </div>
-</section>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -213,19 +207,46 @@ description: "{{ description }} Built natively for FreeBSD with PUID/PGID suppor
 {%- endif %}
 {% endblock %}
 
-{% block prerequisites %}
+{% block prerequisites -%}
+{%- if is_stack or image_class == "service" %}
+
+## Prerequisites
+
 {%- if readme and readme.prerequisites %}
 
-{{ readme.prerequisites }}
-
+{{ readme.prerequisites | trim }}
 {%- endif %}
 
 Before deploying, ensure your host environment is ready. See the [Quick Start Guide](../guides/quick-start.md) for host setup instructions, including the security model for host vs. container privileges.
+{%- endif -%}
+{% endblock %}
+
+{% block deployment_heading %}## Deployment { #deployment data-search-exclude }{% endblock %}
+
+{% block deployment_customizer -%}
+{%- if is_stack or image_class in ["service", "cli"] %}
+
+<details class="deploy-customizer" data-app="{{ name }}" data-default-registry="{{ registry }}" data-default-port="{{ ports[0].port if ports else '' }}" data-has-uid="{{ 'true' if user != 'root' else 'false' }}">
+  <summary>Customize Paths, UID &amp; Ports</summary>
+  <div class="deploy-customizer__body"></div>
+</details>
+{%- endif -%}
 {% endblock %}
 
 {% block deployment_tabs %}
-{%- set port_var = "@" ~ name.upper().replace("-", "_") ~ "_PORT@" %}
+{%- set port_var = ports[0].port if ports else "" %}
 {%- set bastille_tab = bastille_enabled and image_class == "service" %}
+{%- if fjord_supported %}
+=== ":fjord-fjord: fjord"
+
+    Install and manage **{{ title }}** on FreeBSD with [fjord](https://fjord.daemonless.io):
+
+    ```bash
+    fjord install {{ name }}
+    ```
+
+    Or open the **App Store** in the fjord web UI and install **{{ title }}** from the wizard. New to fjord? See the [Install Guide](https://fjord.daemonless.io/install/).
+{% endif -%}
 {%- if compose_text %}
 {#- An app shipped with its database: the real compose and the .env it reads.
     The one-service snippet dropped the database; the one-container recipes
@@ -261,7 +282,7 @@ Before deploying, ensure your host environment is ready. See the [Quick Start Gu
 
         Save the files above, then run `appjail-director up`.
 {% endif %}
-{%- elif appjail_enabled or bastille_tab %}
+{%- elif fjord_supported or appjail_enabled or bastille_tab %}
 {#- One tab per runtime, one way each. #}
 === ":podman-podman: Podman"
 {% if image_class == "service" %}
@@ -323,16 +344,7 @@ Save as `run.sh`, then run `sh run.sh`.
 {%- endif %}
 {% endblock %}
 
-{% block interactive_config %}
-{#- The settings table lands under this heading (ux-settings-v2.js moves it
-    here); without the heading it stays wherever the plugin drops it. Every
-    page has at least the registry placeholder, a base image included, so
-    every page gets the heading; an empty table hides itself. #}
-
-### Interactive Configuration
-
-<div class="placeholder-settings-panel"></div>
-{% endblock %}
+{% block version_tags_heading %}## Version Tags { #version-tags data-search-exclude }{% endblock %}
 
 {% block implementation_details %}
 !!! info "Implementation Details"
@@ -346,16 +358,11 @@ Save as `run.sh`, then run `sh run.sh`.
 {%- else %}
     - **User:** `{{ user }}` (UID/GID set via [PUID/PGID](../guides/permissions.md)). Defaults to `1000:1000`.
 {%- endif %}
-    - **Base:** Built on `@REGISTRY@/base` (FreeBSD {{ base_version }}).
+    - **Base:** Built on `{{ registry }}/base` (FreeBSD {{ base_version }}).
 {%- if mlock %}
     - **mlock:** Requires `--annotation 'org.freebsd.jail.allow.mlock=true'` ([ocijail 0.5.0+](/guides/ocijail-patch/))
 {%- endif %}
 {%- if sysvipc %}
     - **sysvipc:** Requires `--annotation 'org.freebsd.jail.allow.sysvipc=true'` ([ocijail 0.5.0+](/guides/ocijail-patch/))
 {%- endif %}
-{% endblock %}
-
-{% block links %}
-[Website]({{ web_url }}){ .md-button .md-button--primary }
-[Source Code]({{ upstream_url }}){ .md-button }
 {% endblock %}
