@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-11-12" "dbuild 1.13.1" "User Commands"
+.TH DBUILD 1 "2026-11-16" "dbuild 1.13.1" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -375,6 +375,9 @@ enable/disable the PUID/PGID re-chown check for this run, overriding the `cit: p
 .TP
 \fIDBUILD_REGISTRY\fR
 Override the target container registry (e.g., ghcr.io/myorg).
+.TP
+\fIDBUILD_TEST_NETWORK\fR
+Network for the containers dbuild test starts. Default podman; host inside a jail without vnet (a CI runner container), where the checks then probe 127.0.0.1.
 .TP
 \fIGITHUB_TOKEN\fR
 Authentication token for GitHub Packages and build secrets.
