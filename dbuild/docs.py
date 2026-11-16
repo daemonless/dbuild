@@ -113,6 +113,10 @@ DOCS_CONTENT = {
     ),
     "ENVIRONMENT": {
         "DBUILD_REGISTRY": "Override the target container registry (e.g., ghcr.io/myorg).",
+        "DBUILD_TEST_NETWORK": (
+            "Network for the containers dbuild test starts. Default podman; host inside a "
+            "jail without vnet (a CI runner container), where the checks then probe 127.0.0.1."
+        ),
         "GITHUB_TOKEN": "Authentication token for GitHub Packages and build secrets.",
         "GITHUB_ACTOR": "The username associated with GITHUB_TOKEN.",
         "DOCKERHUB_USERNAME": "Enable mirroring by providing a Docker Hub username.",

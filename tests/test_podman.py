@@ -191,6 +191,67 @@ class TestRunDetached(unittest.TestCase):
         self.assertIn("myvol:/config", cmd)
 
 
+    @patch("dbuild.podman._jailed_without_vnet", return_value=False)
+    @patch("dbuild.podman._run")
+    def test_network_defaults_to_podman(self, mock_run, _jailed):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+        with patch.dict("os.environ", {}, clear=False) as env:
+            env.pop("DBUILD_TEST_NETWORK", None)
+            podman.run_detached("myimage:latest", name="test-ctr")
+        self.assertIn("--network=podman", mock_run.call_args[0][0])
+
+    @patch("dbuild.podman._jailed_without_vnet", return_value=True)
+    @patch("dbuild.podman._run")
+    def test_network_is_host_in_a_jail_without_vnet(self, mock_run, _jailed):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+        with patch.dict("os.environ", {}, clear=False) as env:
+            env.pop("DBUILD_TEST_NETWORK", None)
+            podman.run_detached("myimage:latest", name="test-ctr")
+        self.assertIn("--network=host", mock_run.call_args[0][0])
+
+    @patch("dbuild.podman._jailed_without_vnet", return_value=True)
+    @patch("dbuild.podman._run")
+    def test_network_env_wins(self, mock_run, _jailed):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+        with patch.dict("os.environ", {"DBUILD_TEST_NETWORK": "mynet"}):
+            podman.run_detached("myimage:latest", name="test-ctr")
+        self.assertIn("--network=mynet", mock_run.call_args[0][0])
+
+
+class TestInspectIp(unittest.TestCase):
+    """Tests for inspect_ip()."""
+
+    @patch("dbuild.podman._run")
+    def test_bridge_address(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="10.88.0.7\n", stderr=""
+        )
+        self.assertEqual(podman.inspect_ip("ctr"), "10.88.0.7")
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("dbuild.podman._run")
+    def test_host_network_is_loopback(self, mock_run):
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="\n", stderr=""),
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="host\n", stderr=""),
+        ]
+        self.assertEqual(podman.inspect_ip("ctr"), "127.0.0.1")
+
+    @patch("dbuild.podman._run")
+    def test_no_address_on_other_networks(self, mock_run):
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="\n", stderr=""),
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="none\n", stderr=""),
+        ]
+        self.assertEqual(podman.inspect_ip("ctr"), "")
+
+
 class TestContainerRunning(unittest.TestCase):
     """Tests for container_running()."""
 

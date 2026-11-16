@@ -342,6 +342,7 @@ fix: ci [skip test] [skip sbom]             # skip multiple steps
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DBUILD_REGISTRY` | `ghcr.io/daemonless` | Default container registry |
+| `DBUILD_TEST_NETWORK` | `podman` (`host` inside a jail without vnet) | Network for `dbuild test` containers. `host` shares the caller's network and probes `127.0.0.1` |
 | `GITHUB_TOKEN` | | Forwarded as build secret + registry auth |
 | `GITHUB_ACTOR` | | Registry login username |
 | `DOCKERHUB_USERNAME` | | Enable Docker Hub mirroring |

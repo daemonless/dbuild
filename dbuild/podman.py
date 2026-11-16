@@ -218,11 +218,37 @@ def history(image: str, *, quiet: bool = False) -> list[dict[str, Any]]:
     return json.loads(result.stdout) if result.stdout.strip() else []
 
 
+def _jailed_without_vnet() -> bool:
+    """True inside a FreeBSD jail that has no network stack of its own."""
+    def read(name: str) -> str:
+        try:
+            out = subprocess.run(
+                ["sysctl", "-n", name], capture_output=True, text=True, check=False,
+            )
+        except OSError:
+            return ""
+        return out.stdout.strip()
+    return read("security.jail.jailed") == "1" and read("security.jail.vnet") == "0"
+
+
+def cit_network() -> str:
+    """Network for containers started by CIT.
+
+    ``$DBUILD_TEST_NETWORK`` wins.  Otherwise ``host`` inside a jail without
+    vnet (a CI runner container): no bridge can be created there, so the
+    container shares the runner's network.  Otherwise ``podman``.
+    """
+    env = os.environ.get("DBUILD_TEST_NETWORK")
+    if env:
+        return env
+    return "host" if _jailed_without_vnet() else "podman"
+
+
 def run_detached(
     image: str,
     *,
     name: str,
-    network: str = "podman",
+    network: str | None = None,
     annotations: dict[str, str] | None = None,
     env: dict[str, str] | None = None,
     volumes: list[str] | None = None,
@@ -231,8 +257,9 @@ def run_detached(
 
     *env* maps environment variable names to values (``-e KEY=VALUE``).
     *volumes* is a list of ``-v`` mount specs (e.g. ``"vol:/config"``).
+    *network* defaults to :func:`cit_network`.
     """
-    cmd = ["podman", "run", "-d", "--name", name, f"--network={network}"]
+    cmd = ["podman", "run", "-d", "--name", name, f"--network={network or cit_network()}"]
     for key, val in (annotations or {}).items():
         cmd += ["--annotation", f"{key}={val}"]
     for key, val in (env or {}).items():
@@ -288,7 +315,15 @@ def inspect_ip(container_name: str) -> str:
         "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
         container_name,
     ])
-    return result.stdout.strip()
+    ip = result.stdout.strip()
+    if ip:
+        return ip
+    # A host-network container has no address of its own.
+    mode = _run(
+        ["podman", "inspect", "--format", "{{.HostConfig.NetworkMode}}", container_name],
+        check=False,
+    )
+    return "127.0.0.1" if (mode.stdout or "").strip() == "host" else ""
 
 
 def container_running(container_name: str, *, quiet: bool = False) -> bool:
