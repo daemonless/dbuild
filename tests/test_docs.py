@@ -1410,7 +1410,7 @@ class TestOperatorFirstAndFjordTab(unittest.TestCase):
 
         # Zero @PLACEHOLDER@ tokens on site output
         self.assertEqual(_re.findall(r"@[A-Z][A-Z0-9_]+@", site), [])
-        self.assertIn('class="screenshot-strip"', site)
+        self.assertIn('class="splide screenshot-carousel"', site)
         self.assertIn('class="deploy-customizer"', site)
         self.assertIn("## Deployment { #deployment data-search-exclude }", site)
         self.assertIn("## Version Tags { #version-tags data-search-exclude }", site)
