@@ -181,13 +181,17 @@ description: "{{ description }} Built natively for FreeBSD with PUID/PGID suppor
 
 {% block screenshots %}
 {% if screenshots %}
-<div class="screenshot-strip" aria-label="{{ title }} screenshots">
+<section class="splide screenshot-carousel" aria-label="{{ title }} screenshots">
+  <div class="splide__track">
+    <ul class="splide__list">
 {% for shot in screenshots %}
-  <a href="{{ shot }}" class="glightbox screenshot-thumb" data-gallery="{{ name }}">
-    <img src="{{ shot }}" loading="lazy" alt="{{ title }} screenshot {{ loop.index }}">
-  </a>
+      <li class="splide__slide">
+        <img src="{{ shot }}" loading="lazy" alt="{{ title }} screenshot {{ loop.index }}">
+      </li>
 {% endfor %}
-</div>
+    </ul>
+  </div>
+</section>
 {% endif %}
 {% endblock %}
 
