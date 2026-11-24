@@ -1,7 +1,7 @@
 """Variant auto-detection and CI matrix output.
 
 Reads config, generates the build matrix, and outputs it in a format
-suitable for the detected CI system (GitHub Actions, Woodpecker, etc.)
+suitable for the detected CI system (GitHub Actions, GitLab, etc.)
 or as plain JSON for local use.
 """
 
@@ -184,7 +184,7 @@ def _list_local_images(cfg: Config) -> tuple[list[dict], list[dict]]:
 def run(cfg: Config, args: argparse.Namespace) -> None:
     """Output detected build matrix.
 
-    When ``--format`` is ``github`` or ``woodpecker``, output is written
+    When ``--format`` is ``github`` or ``gitlab``, output is written
     via the CI backend.  Otherwise, plain JSON is printed to stdout.
     """
     matrix = _build_matrix(cfg, args)
@@ -251,7 +251,7 @@ def run(cfg: Config, args: argparse.Namespace) -> None:
             backend.set_output(key, value)
         return
 
-    if fmt in ("woodpecker", "gitlab"):
+    if fmt == "gitlab":
         backend = ci_mod.detect()
         backend.output_matrix(matrix)
         return

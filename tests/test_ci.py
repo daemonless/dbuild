@@ -125,10 +125,10 @@ class TestDetect(unittest.TestCase):
         self.assertIsInstance(ci, GitHubCI)
 
     @patch.dict("os.environ", {"CI_PIPELINE_ID": "123"}, clear=True)
-    def test_woodpecker(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
+    def test_ci_pipeline_id_falls_back_to_local(self):
+        from dbuild.ci.local import LocalCI
         ci = detect()
-        self.assertIsInstance(ci, WoodpeckerCI)
+        self.assertIsInstance(ci, LocalCI)
 
     @patch.dict("os.environ", {"GITLAB_CI": "true"}, clear=True)
     def test_gitlab(self):
@@ -211,38 +211,6 @@ class TestGitHubCI(unittest.TestCase):
             self.assertIn("line1\nline2", content)
         finally:
             os.unlink(output_file)
-
-
-class TestWoodpeckerCI(unittest.TestCase):
-    """Tests for WoodpeckerCI backend."""
-
-    @patch.dict("os.environ", {"CI_PIPELINE_ID": "42"})
-    def test_detect(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        self.assertTrue(WoodpeckerCI.detect())
-
-    @patch.dict("os.environ", {}, clear=True)
-    def test_detect_false(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        self.assertFalse(WoodpeckerCI.detect())
-
-    @patch.dict("os.environ", {"CI_COMMIT_MESSAGE": "fix: stuff [skip test]"})
-    def test_get_commit_message(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        ci = WoodpeckerCI()
-        self.assertEqual(ci.get_commit_message(), "fix: stuff [skip test]")
-
-    @patch.dict("os.environ", {"CI_PIPELINE_EVENT": "pull_request"})
-    def test_is_pr(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        ci = WoodpeckerCI()
-        self.assertTrue(ci.is_pr())
-
-    @patch.dict("os.environ", {"CI_PIPELINE_EVENT": "push"})
-    def test_is_not_pr(self):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        ci = WoodpeckerCI()
-        self.assertFalse(ci.is_pr())
 
 
 class TestGitLabCI(unittest.TestCase):

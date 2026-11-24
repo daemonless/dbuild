@@ -15,16 +15,30 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      - name: Validate tag format
+        run: |
+          case "$TAG" in
+            ""|*[!A-Za-z0-9._-]*|-*|*..*)
+              echo "::error::Invalid release tag: $TAG"
+              exit 1
+              ;;
+          esac
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'; then
+            echo "::error::Tag must match vX.Y.Z[-suffix]: $TAG"
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       # Image CI pins the dbuild release in daemonless/workflows (DBUILD_REF),
       # bumped there by PR after this release.
@@ -44,6 +58,14 @@ jobs:
           pip install -e '.[dev,screenshot]'
           python -m pytest tests/ -q
 
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
       # Create once; a re-run on a tag that already has one does nothing.
       - name: Publish release
         env:
@@ -55,10 +77,10 @@ jobs:
             exit 0
           fi
           # A hyphen (v1.11.0-rc1) is a pre-release, never marked Latest.
-          PRE=""
-          case "${VERSION}" in *-*) PRE="--prerelease" ;; esac
+          set --
+          case "${VERSION}" in *-*) set -- --prerelease ;; esac
           gh release create "${TAG}" \
             --repo "${{ github.repository }}" \
             --title "v${VERSION}" \
             --generate-notes \
-            $PRE
+            "$@"

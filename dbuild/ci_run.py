@@ -1,8 +1,7 @@
 """CI pipeline orchestration.
 
-Replaces ``dbuild-ci.sh`` with a pure-Python implementation that calls
-the build, test, push, and sbom modules directly.  Runs the full
-pipeline: build -> test -> push -> sbom.
+Runs the full CI pipeline via Python calls to build, test, push, and sbom
+(build -> test -> push -> sbom).
 
 On PR builds, push and sbom are skipped.  Commit-message directives
 like ``[skip test]`` and ``[skip push]`` are honoured by the
@@ -13,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 
-from dbuild import build, log, prepare, push, sbom, test
+from dbuild import build, log, push, sbom, test
 from dbuild import ci as ci_mod
 from dbuild.config import Config
 
@@ -30,7 +29,6 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
 
         * ``variant``  -- build only this tag (optional).
         * ``arch``     -- target architecture override (optional).
-        * ``prepare``  -- run ci-prepare first (optional).
 
     Returns ``0`` on success, non-zero on failure.
     """
@@ -38,12 +36,6 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
     if cfg.metadata.deprecated is not None:
         log.warn("Image is deprecated — skipping CI pipeline")
         return 0
-
-    # Optional: run ci-prepare first
-    if getattr(args, "prepare", False):
-        rc = prepare.run(args)
-        if rc != 0:
-            return rc
 
     # ── Build ────────────────────────────────────────────────────────
     log.step("CI: Build")

@@ -61,21 +61,9 @@ class TestMakeParser(unittest.TestCase):
         args = self.parser.parse_args(["ci-test-env"])
         self.assertEqual(args.command, "ci-test-env")
 
-    def test_ci_prepare_command(self):
-        args = self.parser.parse_args(["ci-prepare"])
-        self.assertEqual(args.command, "ci-prepare")
-
     def test_ci_run_command(self):
         args = self.parser.parse_args(["ci-run"])
         self.assertEqual(args.command, "ci-run")
-
-    def test_ci_prepare_arch(self):
-        args = self.parser.parse_args(["ci-prepare", "--arch", "aarch64"])
-        self.assertEqual(args.arch, "aarch64")
-
-    def test_ci_prepare_compose(self):
-        args = self.parser.parse_args(["ci-prepare", "--compose"])
-        self.assertTrue(args.compose)
 
     def test_ci_run_variant(self):
         args = self.parser.parse_args(["ci-run", "--variant", "pkg"])
@@ -85,9 +73,20 @@ class TestMakeParser(unittest.TestCase):
         args = self.parser.parse_args(["ci-run", "--arch", "amd64"])
         self.assertEqual(args.arch, "amd64")
 
-    def test_ci_run_prepare_flag(self):
-        args = self.parser.parse_args(["ci-run", "--prepare"])
-        self.assertTrue(args.prepare)
+    def test_retired_woodpecker_and_prepare_rejected(self):
+        for argv in (
+            ["ci-prepare"],
+            ["ci-run", "--prepare"],
+            ["init", "--woodpecker"],
+            ["detect", "--format", "woodpecker"],
+        ):
+            with (
+                self.subTest(argv=argv),
+                unittest.mock.patch("sys.stderr"),
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                self.parser.parse_args(argv)
+            self.assertEqual(ctx.exception.code, 2)
 
     # ── Global options ────────────────────────────────────────────────
 
@@ -169,9 +168,9 @@ class TestMakeParser(unittest.TestCase):
         args = self.parser.parse_args(["init", "--github"])
         self.assertTrue(args.github)
 
-    def test_init_woodpecker_flag(self):
-        args = self.parser.parse_args(["init", "--woodpecker"])
-        self.assertTrue(args.woodpecker)
+    def test_init_category_default_none(self):
+        args = self.parser.parse_args(["init"])
+        self.assertIsNone(args.category)
 
     # ── Help options ──────────────────────────────────────────────────
 
