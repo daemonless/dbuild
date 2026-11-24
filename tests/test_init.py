@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 from dbuild import init
 from dbuild.init import _build_variants_block, run
 
@@ -16,13 +18,12 @@ def _base_args(**overrides):
     args = argparse.Namespace(
         name="testapp",
         title="TestApp",
-        category="Apps",
+        category=None,
         type="generic",
         port=8080,
         variants="latest",
         community=None,
         dry_run=False,
-        woodpecker=False,
         github=False,
         freebsd_port=None,
         flavors=None,
@@ -305,6 +306,37 @@ class TestPortSpec(unittest.TestCase):
         with patch("dbuild.init._pkg_rquery", return_value="net-p2p/transmission-components"):
             self.assertEqual(init._resolve_port_spec("transmission-daemon", None), "net-p2p/transmission-components")
 
+    def test_rejects_traversal_and_globs(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _fake_port(root, "www/gitea", {})
+            for bad in (
+                "../evil",
+                "www/..",
+                "../../tmp/evil",
+                "foo/*",
+                "www/gitea*",
+                "gite?",
+                "[a-z]*",
+                f"{root}/../evil",
+                "https://www.freshports.org/net-p2p/..",
+            ):
+                with self.subTest(bad=bad):
+                    self.assertIsNone(init._resolve_port_spec(bad, root))
+
+    def test_fetch_port_metadata_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            ports = tmp / "ports"
+            (ports / "Mk").mkdir(parents=True)
+            outside = tmp / "outside"
+            outside.mkdir()
+            (outside / "Makefile").write_text("PORTNAME=evil\n")
+            (ports / "www").mkdir()
+            (ports / "www" / "escape").symlink_to(outside)
+            with patch("dbuild.init._portsdir", return_value=ports):
+                self.assertIsNone(init._fetch_port_metadata("www/escape"))
+
 
 class TestRcScript(unittest.TestCase):
     """_rc_script_info finds the daemon through rc.d conventions."""
@@ -515,6 +547,73 @@ class TestMlockRendering(unittest.TestCase):
         self.assertIn('restart: unless-stopped\n\n    annotations:\n      org.freebsd.jail.allow.mlock: "true"\n\n    environment:', compose)
         self.assertIn('  # ready: "listening on"\n  annotations:\n    - "org.freebsd.jail.allow.mlock=true"\n', config)
         self.assertNotRegex(config, r"\n[ \t]+\n")
+
+
+class TestInputValidationAndYamlEscaping(unittest.TestCase):
+    """Validation of --name / --category and YAML escaping in compose.yaml."""
+
+    def test_invalid_category_rejected_cleanly(self):
+        for bad in ("Apps", "NotACategory", "media"):
+            with (
+                self.subTest(category=bad),
+                tempfile.TemporaryDirectory() as d,
+                patch("dbuild.init.Path.cwd", return_value=Path(d)),
+            ):
+                rc = run(_base_args(category=bad))
+                self.assertEqual(rc, 1)
+                self.assertEqual(list(Path(d).iterdir()), [])
+
+    def test_valid_category_accepted_and_none_defaults_to_devops(self):
+        with tempfile.TemporaryDirectory() as d, patch("dbuild.init.Path.cwd", return_value=Path(d)):
+            self.assertEqual(run(_base_args(category="Networking")), 0)
+            compose = yaml.safe_load((Path(d) / "compose.yaml").read_text())
+            self.assertEqual(compose["x-daemonless"]["category"], "Networking")
+
+        with tempfile.TemporaryDirectory() as d, patch("dbuild.init.Path.cwd", return_value=Path(d)):
+            self.assertEqual(run(_base_args(category=None)), 0)
+            compose = yaml.safe_load((Path(d) / "compose.yaml").read_text())
+            self.assertEqual(compose["x-daemonless"]["category"], "DevOps")
+
+    def test_invalid_app_name_rejected(self):
+        for bad in ("bad name", "../evil", "BadCaps", "-leading"):
+            with (
+                self.subTest(name=bad),
+                tempfile.TemporaryDirectory() as d,
+                patch("dbuild.init.Path.cwd", return_value=Path(d)),
+            ):
+                rc = run(_base_args(name=bad))
+                self.assertEqual(rc, 1)
+                self.assertEqual(list(Path(d).iterdir()), [])
+
+    def test_compose_yaml_escapes_quotes_backslashes_and_newlines(self):
+        meta = dict(
+            _PORT_META,
+            name="quotetest",
+            description='Fast "quote" tool\nwith \\backslash',
+            category="DevOps",
+        )
+        with (
+            tempfile.TemporaryDirectory() as d,
+            patch("dbuild.init.Path.cwd", return_value=Path(d)),
+            patch("dbuild.init._fetch_port_metadata", return_value=meta),
+        ):
+            rc = run(_base_args(
+                name=None,
+                title='App "One" \\ Test',
+                freebsd_port="sysutils/quotetest",
+                community='Discord:"https://discord.gg/test"',
+            ))
+            self.assertEqual(rc, 0)
+            compose = yaml.safe_load((Path(d) / "compose.yaml").read_text())
+        self.assertEqual(compose["x-daemonless"]["title"], 'App "One" \\ Test')
+        self.assertEqual(
+            compose["x-daemonless"]["description"],
+            'Fast "quote" tool with \\backslash',
+        )
+        self.assertEqual(
+            compose["x-daemonless"]["community"],
+            'Discord:"https://discord.gg/test"',
+        )
 
 
 if __name__ == "__main__":

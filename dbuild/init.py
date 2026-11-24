@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 
 from dbuild import log
-from dbuild.config import DEFAULT_COMMUNITY
+from dbuild.config import DEFAULT_COMMUNITY, VALID_CATEGORIES
 
 # Templates are co-located in the package
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -30,13 +30,25 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 # which fills them from compose.yaml on every run; init must not bake the
 # values in, or compose.yaml stops being the single source of truth.
 _GENERATOR_KEYS = frozenset({"title", "description", "repo_url", "web_url", "category"})
+_COMPOSE_DQ_KEYS = frozenset({
+    "title", "category", "description",
+    "upstream_url", "web_url", "freshports_url", "community",
+})
 
 _DEFAULT_PORT = 8080
 _PORT_VARIANTS = "pkg,pkg-latest"
+_PORT_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+_APP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _FRESHPORTS_RE = re.compile(r"^https?://(?:www\.)?freshports\.org/([^/]+/[^/]+)/?$")
 _RC_VAR_RE = re.compile(r"\$\{(\w+)_port:?=\"?(\d{2,5})")
 # "localhost:8080", "http://127.0.0.1:9091/web", "https://<host>:3000"
 _MSG_PORT_RE = re.compile(r"(?<![\w.])(?:https?://)?[\w.\[\]<>-]+:(\d{2,5})(?![\d.])")
+
+
+def _yaml_dq(val: object) -> str:
+    """Escape a string rendered inside double-quoted YAML scalars."""
+    text = " ".join(str(val).splitlines()).strip()
+    return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
 # FreeBSD port category → daemonless category.
@@ -236,8 +248,14 @@ def _resolve_port_spec(spec: str, portsdir: Path | None) -> str | None:
     parts = [p for p in spec.split("/") if p]
 
     if len(parts) == 2:
+        if not all(_PORT_TOKEN_RE.match(p) for p in parts):
+            log.error(
+                f"invalid port '{spec}' — expected category/portname "
+                "(letters, digits, '.', '_', '+', '-')"
+            )
+            return None
         return "/".join(parts)
-    if len(parts) != 1:
+    if len(parts) != 1 or not _PORT_TOKEN_RE.match(parts[0]):
         log.error(
             f"invalid port '{spec}' — expected category/portname "
             "(e.g. net-p2p/transmission), a FreshPorts URL, or a bare name"
@@ -458,6 +476,13 @@ def _fetch_port_metadata(
         return _fetch_pkg_metadata(origin, want_run_deps)
 
     full_path = portsdir / origin
+    try:
+        if not full_path.resolve().is_relative_to(portsdir.resolve()):
+            log.error(f"invalid port path '{origin}' — resolves outside {portsdir}")
+            return None
+    except OSError:
+        log.error(f"invalid port path '{origin}'")
+        return None
     if not (full_path / "Makefile").is_file():
         log.error(f"port not found: {full_path}")
         name = origin.split("/")[-1]
@@ -671,10 +696,12 @@ def _render_template(
         return None
 
     content = src.read_text()
+    escape_dq = template_name == "compose.yaml"
     for key, val in context.items():
         if generator and key in _GENERATOR_KEYS:
             continue
-        content = content.replace(f"{{{{ {key} }}}}", str(val))
+        rendered = _yaml_dq(val) if (escape_dq and key in _COMPOSE_DQ_KEYS) else str(val)
+        content = content.replace(f"{{{{ {key} }}}}", rendered)
     if generator:
         return content
 
@@ -900,6 +927,13 @@ def _next_steps(base: Path, app_name: str, review: list[str], from_port: bool) -
 
 def run(args: argparse.Namespace) -> int:
     """Scaffold a new dbuild project in the current directory."""
+    raw_cat_arg = getattr(args, "category", None)
+    if raw_cat_arg is not None and raw_cat_arg not in VALID_CATEGORIES:
+        log.error(
+            f"invalid category '{raw_cat_arg}' (valid: {', '.join(VALID_CATEGORIES)})"
+        )
+        return 1
+
     port_spec = getattr(args, "freebsd_port", None)
     flavors = [f.strip() for f in (getattr(args, "flavors", None) or "").split(",") if f.strip()]
     if flavors and not port_spec:
@@ -921,12 +955,19 @@ def run(args: argparse.Namespace) -> int:
             return 1
         port_meta = fetched
 
-    app_name = args.name or port_meta.get("name") or Path.cwd().name
+    app_name = str(args.name or port_meta.get("name") or Path.cwd().name)
+    if not _APP_NAME_RE.match(app_name):
+        log.error(
+            f"invalid application name '{app_name}' "
+            "(use lowercase letters, digits, '.', '_', or '-'; pass --name to override)"
+        )
+        return 1
+
     # node_exporter -> Node Exporter; a brand's own casing is a --title job
     title = args.title or " ".join(w.capitalize() for w in app_name.split("_"))
-    category_from_arg = bool(args.category and args.category != "Apps")
+    category_from_arg = raw_cat_arg is not None
     category = (
-        args.category if category_from_arg
+        raw_cat_arg if category_from_arg
         else (port_meta.get("category") or "DevOps")
     )
     port_arg = getattr(args, "port", None)
@@ -1014,8 +1055,6 @@ def run(args: argparse.Namespace) -> int:
         "setup.sh", daemonless / "init.d" / f"20-{app_name}", context, dry_run, executable=True,
     )
 
-    if getattr(args, "woodpecker", False):
-        created += _scaffold("woodpecker.yaml", base / ".woodpecker.yaml", context, dry_run)
     if getattr(args, "github", False):
         created += _scaffold(
             "github-workflow.yaml",

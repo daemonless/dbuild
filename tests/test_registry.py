@@ -60,6 +60,11 @@ class TestGenericRegistry(unittest.TestCase):
         self.assertEqual(reg.url, "ghcr.io/daemonless")
         self.assertEqual(reg.token, "tok")
 
+    def test_dockerhub_no_update_description(self):
+        self.assertTrue(hasattr(DockerHub, "login"))
+        self.assertTrue(hasattr(DockerHub, "mirror_from"))
+        self.assertFalse(hasattr(DockerHub, "update_description"))
+
 
 if __name__ == "__main__":
     unittest.main()

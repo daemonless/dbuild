@@ -1,4 +1,4 @@
-.TH DBUILD 1 "2026-11-16" "dbuild 1.13.1" "User Commands"
+.TH DBUILD 1 "2026-11-24" "dbuild 1.13.1" "User Commands"
 .SH NAME
 dbuild \- FreeBSD OCI container image build tool
 .SH SYNOPSIS
@@ -125,20 +125,6 @@ show this help message and exit
 write here instead of stdout
 .RE
 .TP
-\fBci-prepare\fR
-Set up a FreeBSD CI runner with all build dependencies.
-.RS
-.TP
-\fB-h\fR, \fB--help\fR
-show this help message and exit
-.TP
-\fB--arch\fR
-override target architecture (e.g. amd64, aarch64)
-.TP
-\fB--compose\fR
-also install podman-compose
-.RE
-.TP
 \fBci-run\fR
 Run the complete CI/CD pipeline for all (or selected) variants.
 .RS
@@ -151,9 +137,6 @@ filter to one or more variants by tag (comma-separated, e.g. pkg,pkg-latest)
 .TP
 \fB--arch\fR
 override target architecture (e.g. amd64, aarch64)
-.TP
-\fB--prepare\fR
-run ci-prepare before the pipeline
 .RE
 .TP
 \fBci-test-env\fR
@@ -228,7 +211,7 @@ application name (e.g. radarr)
 human-readable title (e.g. Radarr)
 .TP
 \fB--category\fR
-application category (default: Apps)
+application category (default: port mapping or DevOps)
 .TP
 \fB--type\fR
 application type (default: generic)
@@ -247,9 +230,6 @@ show what would be created without writing to disk
 .TP
 \fB--github\fR
 generate GitHub Actions workflow (.github/workflows/build.yaml)
-.TP
-\fB--woodpecker\fR
-generate Woodpecker CI pipeline (.woodpecker.yaml)
 .RE
 .TP
 \fBlint\fR
@@ -401,12 +381,12 @@ The primary source of truth for metadata and documentation.
 \fI.daemonless/config.yaml\fR
 Project-specific build and test overrides.
 .TP
-\fI/usr/local/etc/daemonless.yaml\fR
+\fI$PREFIX/etc/daemonless.yaml\fR
 Optional host-local defaults, including pkg_cache_url for local pkg-cache injection.
 .SH GLOBAL CONFIGURATION
-The \fI/usr/local/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
+The \fI$PREFIX/etc/daemonless.yaml\fR file is an optional host-local config file for settings that apply on this builder, not in every image repo. To use a local pkg cache, set \fIpkg_cache_url\fR. dbuild injects that value into builds as \fIPKG_CACHE_URL\fR, and opt-in Containerfiles can use it to point FreeBSD pkg at the local cache during build. If the file or key is missing, nothing is injected.
 .PP
-Example \fI/usr/local/etc/daemonless.yaml\fR:
+Example \fI$PREFIX/etc/daemonless.yaml\fR:
 .IP
 .nf
 pkg_cache_url: pkg-cache.example.lan:8080

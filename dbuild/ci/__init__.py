@@ -98,10 +98,6 @@ def detect() -> CIBase:
         from dbuild.ci.github import GitHubCI
         return GitHubCI()
 
-    if os.environ.get("CI_PIPELINE_ID"):
-        from dbuild.ci.woodpecker import WoodpeckerCI
-        return WoodpeckerCI()
-
     if os.environ.get("GITLAB_CI"):
         from dbuild.ci.gitlab import GitLabCI
         return GitLabCI()

@@ -252,7 +252,7 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     detect_parser.add_argument(
         "--format", "-f",
-        choices=["json", "github", "woodpecker", "gitlab"],
+        choices=["json", "github", "gitlab"],
         default="json",
         dest="format",
         help="output format (default: json)",
@@ -363,8 +363,8 @@ def _make_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--category",
         metavar="CAT",
-        default="Apps",
-        help="application category (default: Apps)",
+        default=None,
+        help="application category (default: port mapping or DevOps)",
     )
     init_parser.add_argument(
         "--type",
@@ -404,12 +404,6 @@ def _make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="generate GitHub Actions workflow (.github/workflows/build.yaml)",
-    )
-    init_parser.add_argument(
-        "--woodpecker",
-        action="store_true",
-        default=False,
-        help="generate Woodpecker CI pipeline (.woodpecker.yaml)",
     )
 
     # -- lint --
@@ -523,20 +517,6 @@ def _make_parser() -> argparse.ArgumentParser:
         help="pull the image from registry if not found locally in storage",
     )
 
-    # -- ci-prepare --
-    ci_prepare_parser = sub.add_parser(
-        "ci-prepare",
-        help="prepare FreeBSD CI environment (install packages, ocijail, networking)",
-        description="Set up a FreeBSD CI runner with all build dependencies.",
-    )
-    ci_prepare_parser.add_argument("--arch", **arch_kw)
-    ci_prepare_parser.add_argument(
-        "--compose",
-        action="store_true",
-        default=False,
-        help="also install podman-compose",
-    )
-
     # -- ci-test-env --
     sub.add_parser(
         "ci-test-env",
@@ -552,12 +532,6 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     ci_run_parser.add_argument("--variants", "--variant", **variant_kw)
     ci_run_parser.add_argument("--arch", **arch_kw)
-    ci_run_parser.add_argument(
-        "--prepare",
-        action="store_true",
-        default=False,
-        help="run ci-prepare before the pipeline",
-    )
 
     # -- help --
     help_parser = sub.add_parser(
@@ -740,7 +714,7 @@ _DISPATCHERS: dict[str, callable] = {
 
 # Commands that run without loading project config
 _NO_CONFIG_COMMANDS: set[str] = {
-    "init", "ci-prepare", "ci-test-env", "lint", "screenshot", "logo", "help", "analyze", "audit",
+    "init", "ci-test-env", "lint", "screenshot", "logo", "help", "analyze", "audit",
 }
 
 
@@ -783,9 +757,6 @@ def main(argv: list[str] | None = None) -> None:
             if args.command == "init":
                 from dbuild import init
                 rc = init.run(args)
-            elif args.command == "ci-prepare":
-                from dbuild import prepare
-                rc = prepare.run(args)
             elif args.command == "ci-test-env":
                 from dbuild import ci_test
                 rc = ci_test.run(args)

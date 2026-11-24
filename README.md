@@ -4,10 +4,10 @@ Build, test, and push FreeBSD OCI container images.
 
 dbuild is a build tool for [daemonless](https://github.com/daemonless) container images. It reads a project directory containing `Containerfile` templates and an optional `.daemonless/config.yaml`, then handles the full image lifecycle: build, integration test, SBOM generation, and registry push.
 
-It runs the same way locally and in CI. GitHub Actions and Woodpecker call dbuild — dbuild handles the FreeBSD-specific logic (variant detection, architecture mapping, OCI labels, registry auth, skip directives, SBOM generation) so CI workflows stay generic.
+It runs the same way locally and in CI. GitHub Actions calls dbuild — dbuild handles the FreeBSD-specific logic (variant detection, architecture mapping, OCI labels, registry auth, skip directives, SBOM generation) so CI workflows stay generic.
 
 ```
-GitHub Actions / Woodpecker / local
+GitHub Actions / local
   └── dbuild detect     →  build matrix
   └── dbuild build      →  podman build per variant
   └── dbuild test       →  container integration tests
@@ -251,7 +251,6 @@ Output the build matrix as JSON for CI integration.
 ```sh
 dbuild detect                       # plain JSON to stdout
 dbuild detect --format github       # write to $GITHUB_OUTPUT
-dbuild detect --format woodpecker   # JSON to stdout
 ```
 
 ### `dbuild info`
@@ -279,7 +278,6 @@ Scaffold a new dbuild project with starter files.
 ```sh
 dbuild init                     # config.yaml, compose.yaml, Containerfile.j2, root/
 dbuild init --github            # + GitHub Actions workflow
-dbuild init --woodpecker        # + Woodpecker CI pipeline
 ```
 
 The image is a single process on `base-exec`: `/init` runs the setup script
@@ -364,14 +362,6 @@ This generates `.github/workflows/build.yaml` which:
 1. Runs `dbuild detect --format github` to generate the build matrix
 2. Spins up a FreeBSD VM per matrix entry (via vmactions/freebsd-vm)
 3. Runs `dbuild build → test → sbom → push` inside the VM
-
-### Woodpecker CI
-
-```sh
-dbuild init --woodpecker
-```
-
-Generates `.woodpecker.yaml`. The pipeline fetches `dbuild-ci.sh` which runs the full build pipeline on the native FreeBSD agent.
 
 ### Local development
 

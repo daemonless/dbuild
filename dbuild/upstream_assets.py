@@ -133,7 +133,7 @@ def _stem_from_url(url: str) -> str:
     stem = Path(basename).stem if basename else ""
     if not stem or stem in ("raw", "blob", "main", "master"):
         stem = ""
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem)
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem).strip(".")
     return safe or "screenshot"
 
 
@@ -156,8 +156,9 @@ def download_screenshot(url: str, repo_dir: Path | None = None) -> int:
     mime = fetch.detect_mime(tmp_path)
     ext = _SCREENSHOT_MIME_EXT.get(mime)
     if not ext:
-        log.warn(f"Unrecognised MIME type '{mime}' — defaulting to .png")
-        ext = ".png"
+        log.error(f"Unsupported screenshot format '{mime}'")
+        os.unlink(tmp_path)
+        return 1
     log.info(f"Detected type: {mime} → {ext}")
 
     for msg in screenshot_warnings(tmp_path, ext):
@@ -181,6 +182,7 @@ def download_screenshot(url: str, repo_dir: Path | None = None) -> int:
         counter += 1
 
     shutil.move(tmp_path, str(dest))
+    os.chmod(dest, 0o644)
     log.success(f"Saved: {dest.relative_to(base)}")
     return 0
 
@@ -195,7 +197,7 @@ def process_logo(source: str, repo_dir: Path | None = None, dark: bool = False) 
     logo_dir = base / ".daemonless"
     logo_prefix = "logo-dark" if dark else "logo"
 
-    is_url = source.startswith(("http://", "https://"))
+    is_url = source.lower().startswith(("http://", "https://"))
     local_file = Path(source) if not is_url else None
 
     if local_file:
@@ -251,6 +253,7 @@ def process_logo(source: str, repo_dir: Path | None = None, dark: bool = False) 
 
     try:
         shutil.copy2(src_path, str(dest))
+        os.chmod(dest, 0o644)
         log.success(f"Saved: {dest.relative_to(base)}")
     except Exception as e:
         log.error(f"Failed to copy logo file to destination: {e}")
